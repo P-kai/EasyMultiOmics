@@ -20,7 +20,7 @@ The pipeline supports beginner-friendly yet robust analytical procedures and is 
 
 ---
 
-### 2. Long-read Metagenomics (Third-Generation Sequencing)
+### 2. Long-read Metagenomics (Nanopore Sequencing, reference to https://github.com/P-kai/EasyNanoMeta)
 - Raw data quality control  
 - Read-based taxonomic profiling  
 - ARG annotation and quantification  
