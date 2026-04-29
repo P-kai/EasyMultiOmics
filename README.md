@@ -32,7 +32,7 @@ The pipeline supports beginner-friendly yet robust analytical procedures and is 
 
 ---
 
-### 3. Hybrid Assembly (Short-read + Long-read Integration)
+### 3. Hybrid Assembly (Short-read and Long-read metagenomes)
 - Hybrid metagenomic assembly  
 - Genome binning  
 - Bin quality assessment  
