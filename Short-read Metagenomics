@@ -170,13 +170,130 @@ gtdbtk classify_wf \
   --cpus ${threads} \
   --skip_ani_screen
 
+# ============================================================
+# SGB construction based on Mash distance
+# ============================================================
+
+conda activate mash
+
+mkdir -p SGBs
+mkdir -p SGBs/MAGs
+mkdir -p SGBs/repre_MAGs
+mkdir -p SGBs/scripts
+
+# Copy high-quality or selected MAGs into SGBs/MAGs
+# Please modify the input path according to your binning results
+cp Binning/${sample}_metawrap_metabat2/metabat2_bins/*.fa SGBs/MAGs/
+
+
+# Build Mash sketches for all MAGs
+
+mash sketch \
+  -o SGBs/MAGs_sketch \
+  -k 21 \
+  -s 10000 \
+  SGBs/MAGs/*.fa
+
+
+# Calculate pairwise Mash distances
+
+mash dist \
+  SGBs/MAGs_sketch.msh \
+  SGBs/MAGs_sketch.msh \
+  -p ${threads} \
+  > SGBs/mash_distances.tab
+
+
+# Extract similar MAG pairs with Mash distance <= 0.05
+# This threshold corresponds approximately to genome similarity >= 95%
+
+awk '$3<=0.05 {print $1"\t"$2}' \
+  SGBs/mash_distances.tab \
+  > SGBs/similar_pairs.tsv
+
 
 # ============================================================
-# MAG phylogenetic tree construction
+# Cluster MAGs into SGBs
 # ============================================================
 
-# GTDB-Tk generates phylogenetic trees during taxonomic classification.
-# The output tree can be used for downstream visualization.
+cat > SGBs/scripts/cluster_sgbs.py << 'EOF'
+#!/usr/bin/env python3
 
-cp Bin_Taxonomy/${sample}_gtdbtk/gtdbtk.bac120.classify.tree \
-   MAG_Tree/${sample}_MAGs.tree
+import networkx as nx
+import argparse
+
+def main():
+    parser = argparse.ArgumentParser(description="Cluster MAGs into SGBs based on pairwise Mash similarity.")
+    parser.add_argument("-i", "--input", required=True, help="Input file containing similar MAG pairs in TSV format.")
+    parser.add_argument("-o", "--output", required=True, help="Output file for SGB clustering results.")
+    args = parser.parse_args()
+
+    edges = []
+
+    with open(args.input) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            a, b = line.split()[:2]
+            edges.append((a, b))
+
+    G = nx.Graph()
+    G.add_edges_from(edges)
+
+    clusters = list(nx.connected_components(G))
+
+    with open(args.output, "w") as out:
+        out.write("Representative_MAG\tCluster_Size\tFiles\n")
+        for cluster in clusters:
+            rep = sorted(cluster)[0]
+            cluster_size = len(cluster)
+            files_sorted = sorted(cluster)
+            for mag in files_sorted:
+                out.write(f"{rep}\t{cluster_size}\t{mag}\n")
+
+    print(f"Total SGBs: {len(clusters)}")
+    print(f"SGB clustering results written to {args.output}")
+
+if __name__ == "__main__":
+    main()
+EOF
+
+chmod +x SGBs/scripts/cluster_sgbs.py
+
+
+# Run SGB clustering
+
+conda activate python
+
+python SGBs/scripts/cluster_sgbs.py \
+  -i SGBs/similar_pairs.tsv \
+  -o SGBs/SGB_clusters.tsv
+
+
+# Extract representative MAGs for each SGB
+
+cut -f1 SGBs/SGB_clusters.tsv | tail -n +2 | sort | uniq > SGBs/representative_MAGs.txt
+
+while read mag
+do
+  cp ${mag} SGBs/repre_MAGs/
+done < SGBs/representative_MAGs.txt
+
+
+# ============================================================
+# Phylogenetic tree construction for representative SGBs
+# ============================================================
+
+conda activate phylophlan
+
+phylophlan \
+  -i SGBs/repre_MAGs/ \
+  --diversity high \
+  -d phylophlan_databases/phylophlan \
+  --fast \
+  --min_num_markers 50 \
+  --nproc ${threads} \
+  -o SGBs/repre_MAGs_phylophlan \
+  -f /ifs1/Software/Miniconda3/envs/phylophlan/lib/python3.13/site-packages/phylophlan/phylophlan_configs/supermatrix_aa.cfg \
+  --genome_extension fa
