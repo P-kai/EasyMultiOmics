@@ -1,0 +1,182 @@
+#!/bin/bash
+
+# EasyMultiOmics: Short-read metagenomic analysis workflow
+# Module: Short-read Metagenomics
+# Description: Quality control, taxonomic profiling, ARG annotation and quantification, assembly, binning, bin quality control, bin taxonomy, and MAG phylogeny
+
+sample=$1
+threads=24
+
+R1=${sample}_R1.fastq.gz
+R2=${sample}_R2.fastq.gz
+
+mkdir -p QC
+mkdir -p Taxonomy
+mkdir -p ARGs
+mkdir -p Assembly
+mkdir -p Binning
+mkdir -p Bin_QC
+mkdir -p Bin_Taxonomy
+mkdir -p MAG_Tree
+
+
+# ============================================================
+# Raw data quality control
+# ============================================================
+
+conda activate fastp
+
+fastp \
+  -i ${R1} \
+  -I ${R2} \
+  -o QC/${sample}_clean_R1.fastq.gz \
+  -O QC/${sample}_clean_R2.fastq.gz \
+  -h QC/${sample}_fastp.html \
+  -j QC/${sample}_fastp.json \
+  -w ${threads}
+
+
+# ============================================================
+# Read-based taxonomic profiling
+# ============================================================
+
+conda activate kraken2
+
+kraken2 \
+  --db /path/to/kraken2_database \
+  --threads ${threads} \
+  --paired \
+  --gzip-compressed \
+  --report Taxonomy/${sample}_kraken2_report.txt \
+  --output Taxonomy/${sample}_kraken2_output.txt \
+  QC/${sample}_clean_R1.fastq.gz \
+  QC/${sample}_clean_R2.fastq.gz
+
+conda activate bracken
+
+bracken \
+  -d /path/to/kraken2_database \
+  -i Taxonomy/${sample}_kraken2_report.txt \
+  -o Taxonomy/${sample}_bracken_species.txt \
+  -r 150 \
+  -l S \
+  -t ${threads}
+
+
+# ============================================================
+# ARG annotation and quantification using ARGs_OAP
+# ============================================================
+
+conda activate args_oap
+
+mkdir -p ARGs/${sample}_ARGs_OAP
+mkdir -p ARGs/${sample}_ARGs_OAP/stage_one
+mkdir -p ARGs/${sample}_ARGs_OAP/stage_two
+
+# Input files for ARGs_OAP
+# ARGs_OAP supports fasta format input in this workflow.
+# If your input files are fastq.gz, please convert them to fasta first.
+
+seqkit fq2fa QC/${sample}_clean_R1.fastq.gz > ARGs/${sample}_R1.clean.fa
+seqkit fq2fa QC/${sample}_clean_R2.fastq.gz > ARGs/${sample}_R2.clean.fa
+
+cat ARGs/${sample}_R1.clean.fa ARGs/${sample}_R2.clean.fa > ARGs/${sample}_clean_reads.fa
+
+
+# Optional: build customized ARGs_OAP database
+# Use this step only when using a customized database.
+# The database can contain nucleotide or amino acid sequences.
+
+# args_oap make_db \
+#   -i /path/to/custom_database.fasta
+
+
+# Stage one: ARG annotation using ARGs_OAP
+
+args_oap stage_one \
+  -i ARGs/${sample}_clean_reads.fa \
+  -o ARGs/${sample}_ARGs_OAP/stage_one \
+  -f fa \
+  -t ${threads} \
+  --database /path/to/database.fasta
+
+
+# Stage two: ARG classification and quantification using ARGs_OAP
+
+args_oap stage_two \
+  -i ARGs/${sample}_ARGs_OAP/stage_one \
+  -t ${threads} \
+  --database /path/to/database.fasta \
+  --structure1 /path/to/structure.txt
+
+# ============================================================
+# Metagenomic assembly
+# ============================================================
+
+conda activate megahit
+
+megahit \
+  -1 QC/${sample}_clean_R1.fastq.gz \
+  -2 QC/${sample}_clean_R2.fastq.gz \
+  -o Assembly/${sample}_megahit \
+  -t ${threads} \
+  --min-contig-len 1000
+
+cp Assembly/${sample}_megahit/final.contigs.fa Assembly/${sample}_contigs.fa
+
+
+# ============================================================
+# Genome binning using MetaWRAP MetaBAT2
+# ============================================================
+
+conda activate metawrap
+
+mkdir -p Binning/${sample}_metawrap_metabat2
+
+metawrap binning \
+  -o Binning/${sample}_metawrap_metabat2 \
+  -t ${threads} \
+  -a Assembly/${sample}_contigs.fa \
+  --metabat2 \
+  QC/${sample}_clean_R1.fastq.gz \
+  QC/${sample}_clean_R2.fastq.gz
+
+
+# ============================================================
+# Bin quality assessment using CheckM2
+# ============================================================
+
+conda activate checkm2
+
+checkm2 predict \
+  --threads ${threads} \
+  --input Binning/${sample}_metawrap_metabat2/metabat2_bins \
+  --output-directory Bin_QC/${sample}_checkm2 \
+  -x fa
+
+
+# ============================================================
+# Taxonomic annotation of bins using GTDB-Tk
+# ============================================================
+
+conda activate gtdbtk
+
+export GTDBTK_DATA_PATH=/path/to/gtdbtk_database
+
+gtdbtk classify_wf \
+  --genome_dir Binning/${sample}_metawrap_metabat2/metabat2_bins \
+  --extension fa \
+  --out_dir Bin_Taxonomy/${sample}_gtdbtk \
+  --cpus ${threads} \
+  --skip_ani_screen
+
+
+# ============================================================
+# MAG phylogenetic tree construction
+# ============================================================
+
+# GTDB-Tk generates phylogenetic trees during taxonomic classification.
+# The output tree can be used for downstream visualization.
+
+cp Bin_Taxonomy/${sample}_gtdbtk/gtdbtk.bac120.classify.tree \
+   MAG_Tree/${sample}_MAGs.tree
