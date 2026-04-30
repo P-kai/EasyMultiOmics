@@ -1,0 +1,41 @@
+# cutadaptor
+
+```shell
+cutadapt -j <threads> -m 30 -e <error_rate> <adaptor_args> -n 5 \
+-o <out>_combined_clean1_R1.fastq.gz \
+-p <out>_combined_clean1_R2.fastq.gz \
+--json <out>.json \
+<input_R1> <input_R2>
+```
+
+# fastp
+
+```shell
+fastp \
+--in1 <out>_combined_clean1_R1.fastq.gz \
+--in2 <out>_combined_clean1_R2.fastq.gz \
+--out1 <out>_combined_clean2_R1.fastq.gz \
+--out2 <out>_combined_clean2_R2.fastq.gz \
+-h <out>_fastp-report.html \
+-j <out>_fastp-report.json \
+-w <threads> \
+-u 40 \
+-q 15 \
+-n 5 \
+-l 50 \
+--low_complexity_filter \
+--detect_adapter_for_pe
+```
+
+# barcoding detection
+
+```shell
+main_pre-process \
+-f1 <out>_combined_clean2_R1.fastq.gz \
+-f2 <out>_combined_clean2_R2.fastq.gz \
+-o <output_dir> \
+-t <threads> \
+-ot Microbe-seq \
+-with_CB false \
+-ID <output_ID>
+```
