@@ -13,8 +13,8 @@ The pipeline supports beginner-friendly yet robust analytical procedures and is 
 - Read-based taxonomic profiling  
 - Read-based antimicrobial resistance gene (ARG) annotation  
 - Metagenomic assembly  
-- Genome binning  
-- Bin quality assessment  
+- Metagenome binning  
+- Bins quality assessment  
 - Taxonomic annotation of bins  
 - Metagenome-assembled genomes (MAGs) phylogenetic tree construction  
 
@@ -25,8 +25,8 @@ The pipeline supports beginner-friendly yet robust analytical procedures and is 
 - Read-based taxonomic profiling  
 - ARG annotation and quantification  
 - Metagenomic assembly  
-- Genome binning  
-- Bin quality assessment  
+- Metagenome binning  
+- Bins quality assessment  
 - Taxonomic annotation of bins  
 - MAGs phylogenetic analysis  
 
@@ -34,8 +34,8 @@ The pipeline supports beginner-friendly yet robust analytical procedures and is 
 
 ### 3. Hybrid Assembly and Analysis (Short-read and Long-read metagenomes)
 - Hybrid metagenomic assembly  
-- Genome binning  
-- Bin quality assessment  
+- Metagenome binning  
+- Bins quality assessment  
 - Taxonomic annotation of bins  
 - MAGs phylogenetic tree construction  
 
@@ -44,7 +44,7 @@ The pipeline supports beginner-friendly yet robust analytical procedures and is 
 ### 4. Single-cell Microbial Genomics
 - Raw data quality control  
 - Single amplified genome (SAG) assembly  
-- SAG bin quality assessment  
+- SAG bins quality assessment  
 - Taxonomic annotation  
 - ARG annotation  
 - Phylogenetic tree construction of SAGs  
