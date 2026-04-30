@@ -1,1 +1,798 @@
+# EasyNanoMeta: Nanopore long-read metagenomic analysis workflow
 
+    # Version: 1.02, 2026/04/30
+    # Tested on CentOS 7 / Linux
+    # Reference: https://github.com/P-kai/EasyNanoMeta
+    # Module: Nanopore Long-read Metagenomics
+    # Description: Raw data quality control, read-based taxonomic profiling, ARG annotation and quantification,
+    #              metagenomic assembly, genome binning, bin quality assessment, bin taxonomy,
+    #              SGB construction and SGB phylogenetic analysis.
+
+# 0. Basic configuration
+
+## 0.1 Set sample name and computational resources
+
+    # Use the variable i to specify the sample name
+    i=sample_name
+
+    # Set the number of CPU threads
+    threads=24
+
+    # Define raw Nanopore long-read input file
+    raw_fastq=${i}.fastq.gz
+
+    # Create the main output directory
+    outdir=${i}_nanopore_metagenome
+    mkdir -p ${outdir}
+
+    # Enter the output directory
+    cd ${outdir}
+
+    # Create subdirectories for each analysis module
+    mkdir -p 01_raw_qc
+    mkdir -p 02_clean_reads
+    mkdir -p 03_taxonomy
+    mkdir -p 04_ARGs
+    mkdir -p 05_assembly
+    mkdir -p 06_binning
+    mkdir -p 07_bin_qc
+    mkdir -p 08_bin_taxonomy
+    mkdir -p 09_SGBs
+    mkdir -p 09_SGBs/MAGs
+    mkdir -p 09_SGBs/repre_MAGs
+    mkdir -p 09_SGBs/scripts
+    mkdir -p 10_SGB_tree
+
+    # Link raw data into the working directory
+    ln -s ../${raw_fastq} 01_raw_qc/${raw_fastq}
+
+Explanation:
+
+This section defines the sample name, CPU threads, input file and output directory. The input file is assumed to be Nanopore long-read FASTQ format. Both `.fastq` and `.fastq.gz` files can be used, but the example here uses compressed FASTQ format.
+
+## 0.2 Set database paths
+
+    # Kraken2 database
+    KRAKEN2_DB=/path/to/kraken2_database
+
+    # ABRicate ARG database
+    ABRICATE_ARG_DB=ncbi
+
+    # CheckM2 database
+    CHECKM2_DB=/path/to/checkm2_database/uniref100.KO.1.dmnd
+
+    # GTDB-Tk database
+    GTDBTK_DB=/path/to/gtdbtk_database
+
+    # PhyloPhlAn database and configuration file
+    PHYLOPHLAN_DB=/path/to/phylophlan_database/phylophlan
+    PHYLOPHLAN_CFG=/path/to/phylophlan_configs/supermatrix_aa.cfg
+
+Explanation:
+
+This section defines the database paths used by the workflow. Before running the workflow, all `/path/to/...` paths should be replaced with real database paths on your server.
+
+# 1. Raw data quality control
+
+## 1.1 Adapter removal of Nanopore long-read raw data
+
+    # Adapter removal of Nanopore data using porechop_abi
+    conda activate porechop_abi
+
+    porechop_abi --ab_initio \
+      -i 01_raw_qc/${raw_fastq} \
+      -o 02_clean_reads/${i}_adapter_removed.fastq \
+      -t ${threads}
+
+Explanation:
+
+This step removes Nanopore sequencing adapters from raw long reads. Adapter removal is important before read-based species classification, ARG annotation and metagenomic assembly.
+
+Main output:
+
+    02_clean_reads/${i}_adapter_removed.fastq
+
+## 1.2 Quality distribution of Nanopore long-read data
+
+    # Quality control of Nanopore data using NanoPlot
+    conda activate nanoplot
+
+    NanoPlot \
+      -t ${threads} \
+      --N50 \
+      --huge \
+      -f svg \
+      --dpi 500 \
+      --fastq 02_clean_reads/${i}_adapter_removed.fastq \
+      --plots kde dot \
+      --title ${i}_adapter_removed \
+      -o 01_raw_qc/${i}_NanoPlot
+
+Explanation:
+
+NanoPlot is used to evaluate Nanopore read quality, read length distribution, N50 and total sequencing yield. This step helps determine whether the sequencing data are suitable for downstream assembly and binning.
+
+Main output directory:
+
+    01_raw_qc/${i}_NanoPlot
+
+## 1.3 Length and quality filtering of Nanopore reads
+
+    # Activate the conda environment containing chopper
+    conda activate chopper
+
+    # Recommended starting parameters:
+    #   -q 9: keep reads with average Q score >= 9
+    #   -l 1000: keep reads with length >= 1000 bp
+    chopper \
+      -q 9 \
+      -l 1000 \
+      -t ${threads} \
+      -i 02_clean_reads/${i}_adapter_removed.fastq \
+      > 02_clean_reads/${i}_clean.fastq
+
+Explanation:
+
+This step removes short and low-quality Nanopore reads. For assembly-based metagenomic analysis, reads shorter than 1000 bp are often less informative. The thresholds can be adjusted according to sequencing quality and research goals.
+
+Main output:
+
+    02_clean_reads/${i}_clean.fastq
+
+## 1.4 Convert clean FASTQ reads to FASTA format
+
+    # Activate conda environment containing seqkit
+    conda activate seqkit
+
+    # Convert FASTQ to FASTA
+    seqkit fq2fa \
+      02_clean_reads/${i}_clean.fastq \
+      > 02_clean_reads/${i}_clean.fasta
+
+    # Generate read statistics for clean Nanopore reads
+    seqkit stats \
+      -T \
+      02_clean_reads/${i}_clean.fastq \
+      > 02_clean_reads/${i}_clean_seqkit_stats.tsv
+
+Explanation:
+
+Several downstream tools, especially ABRicate and some assembly tools, can use FASTA input. Therefore, the filtered Nanopore reads are converted from FASTQ to FASTA. The total number of bases is also calculated for ARG abundance normalization.
+
+Main outputs:
+
+    02_clean_reads/${i}_clean.fastq
+    02_clean_reads/${i}_clean.fasta
+    02_clean_reads/${i}_clean_seqkit_stats.tsv
+
+# 2. Read-based taxonomic profiling
+
+## 2.1 Species annotation using Kraken2
+
+    # Activate the conda environment containing Kraken2
+    conda activate kraken2
+
+    # Use Kraken2 for taxonomic classification of Nanopore reads
+    kraken2 \
+      --db ${KRAKEN2_DB} \
+      --threads ${threads} \
+      --report 03_taxonomy/${i}_kraken2_report.txt \
+      --output 03_taxonomy/${i}_kraken2_output.txt \
+      02_clean_reads/${i}_clean.fastq
+
+Explanation:
+
+Kraken2 provides a rapid k-mer-based taxonomic classification strategy for metagenomic reads. The report file summarizes the taxonomic composition of the Nanopore long-read metagenome and can be used for downstream visualization.
+
+Main outputs:
+
+    03_taxonomy/${i}_kraken2_report.txt
+    03_taxonomy/${i}_kraken2_output.txt
+
+# 3. ARG annotation and quantification
+
+## 3.1 ARG annotation of Nanopore reads using ABRicate
+
+    # Activate the conda environment containing ABRicate
+    conda activate abricate
+
+    # Annotate antibiotic resistance genes using the selected ARG database
+    abricate \
+      --db ${ABRICATE_ARG_DB} \
+      --minid 80 \
+      --mincov 80 \
+      --threads ${threads} \
+      02_clean_reads/${i}_clean.fasta \
+      > 04_ARGs/${i}_${ABRICATE_ARG_DB}_ARG_result.tsv
+
+    # Generate an ARG summary table
+    abricate --summary \
+      04_ARGs/${i}_${ABRICATE_ARG_DB}_ARG_result.tsv \
+      > 04_ARGs/${i}_${ABRICATE_ARG_DB}_ARG_summary.tsv
+
+Explanation:
+
+This step identifies ARG-like sequences directly from Nanopore reads. The parameters `--minid 80` and `--mincov 80` indicate that hits must have at least 80% nucleotide identity and 80% coverage. These thresholds can be adjusted depending on whether a strict or sensitive search is required.
+
+Main outputs:
+
+    04_ARGs/${i}_${ABRICATE_ARG_DB}_ARG_result.tsv
+    04_ARGs/${i}_${ABRICATE_ARG_DB}_ARG_summary.tsv
+
+## 3.2 ARG abundance normalization
+
+    # Create a Python script to calculate ARG abundance from ABRicate results
+    cat > 04_ARGs/arg_abundance_calculate.py << 'PYEOF'
+    #!/usr/bin/env python3
+
+    import argparse
+    import pandas as pd
+
+    parser = argparse.ArgumentParser(description="Calculate ARG abundance from ABRicate results.")
+    parser.add_argument("--abricate", required=True, help="ABRicate output table.")
+    parser.add_argument("--stats", required=True, help="seqkit stats table generated with -T.")
+    parser.add_argument("--out", required=True, help="Output ARG abundance table.")
+    args = parser.parse_args()
+
+    stats = pd.read_csv(args.stats, sep="\t")
+    if "sum_len" not in stats.columns:
+        raise ValueError("Cannot find 'sum_len' column in seqkit stats table.")
+
+    total_bases = float(str(stats.loc[0, "sum_len"]).replace(",", ""))
+    total_gb = total_bases / 1e9
+
+    abricate = pd.read_csv(args.abricate, sep="\t", comment="#")
+
+    if abricate.empty:
+        out = pd.DataFrame(columns=["GENE", "Hit_Number", "Hit_per_Gb"])
+        out.to_csv(args.out, sep="\t", index=False)
+        raise SystemExit
+
+    if "GENE" not in abricate.columns:
+        raise ValueError("Cannot find 'GENE' column in ABRicate result.")
+
+    abundance = (
+        abricate.groupby("GENE")
+        .size()
+        .reset_index(name="Hit_Number")
+    )
+
+    abundance["Hit_per_Gb"] = abundance["Hit_Number"] / total_gb
+    abundance = abundance.sort_values("Hit_per_Gb", ascending=False)
+    abundance.to_csv(args.out, sep="\t", index=False)
+    PYEOF
+
+    # Run ARG abundance calculation
+    python 04_ARGs/arg_abundance_calculate.py \
+      --abricate 04_ARGs/${i}_${ABRICATE_ARG_DB}_ARG_result.tsv \
+      --stats 02_clean_reads/${i}_clean_seqkit_stats.tsv \
+      --out 04_ARGs/${i}_${ABRICATE_ARG_DB}_ARG_abundance.tsv
+
+Explanation:
+
+This script calculates ARG abundance as ARG hit number normalized by total metagenomic sequencing size. The output value `Hit_per_Gb` represents the number of ARG-positive hits per gigabase of clean Nanopore reads.
+
+Main output:
+
+    04_ARGs/${i}_${ABRICATE_ARG_DB}_ARG_abundance.tsv
+
+# 4. Metagenomic assembly
+
+## 4.1 Assembly of Nanopore long-read metagenome using MetaFlye
+
+    # Activate the conda environment containing Flye
+    conda activate flye
+
+    # Use MetaFlye for Nanopore metagenomic assembly
+    flye \
+      --meta \
+      --nano-raw 02_clean_reads/${i}_clean.fastq \
+      --threads ${threads} \
+      --out-dir 05_assembly/${i}_metaflye
+
+    # Copy final assembly result to a simplified file name
+    cp 05_assembly/${i}_metaflye/assembly.fasta \
+       05_assembly/${i}_metaflye_contigs.fasta
+
+Explanation:
+
+MetaFlye is used for long-read metagenomic assembly. The `--meta` parameter is designed for metagenomic datasets and is recommended for Nanopore long-read metagenomes.
+
+Main output:
+
+    05_assembly/${i}_metaflye_contigs.fasta
+
+## 4.2 Assembly statistics
+
+    # Activate conda environment containing seqkit
+    conda activate seqkit
+
+    # Generate assembly statistics
+    seqkit stats \
+      -a \
+      -T \
+      05_assembly/${i}_metaflye_contigs.fasta \
+      > 05_assembly/${i}_metaflye_contigs_stats.tsv
+
+Explanation:
+
+This step summarizes the assembly result, including contig number, total assembly size, minimum length, maximum length and N50.
+
+Main output:
+
+    05_assembly/${i}_metaflye_contigs_stats.tsv
+
+# 5. Genome binning
+
+## 5.1 Map clean Nanopore reads to assembled contigs
+
+    # Activate conda environment containing minimap2 and samtools
+    conda activate minimap2
+
+    # Build minimap2 index for assembled contigs
+    minimap2 \
+      -d 06_binning/${i}_contigs.mmi \
+      05_assembly/${i}_metaflye_contigs.fasta
+
+    # Map Nanopore reads to contigs and generate BAM file
+    minimap2 \
+      -t ${threads} \
+      -N 5 \
+      -ax map-ont \
+      06_binning/${i}_contigs.mmi \
+      02_clean_reads/${i}_clean.fastq | \
+      samtools view \
+        -F 3584 \
+        -b \
+        --threads ${threads} \
+        > 06_binning/${i}_contigs.bam
+
+    # Sort BAM file
+    samtools sort \
+      -@ ${threads} \
+      06_binning/${i}_contigs.bam \
+      -o 06_binning/${i}_contigs.sorted.bam
+
+    # Index sorted BAM file
+    samtools index 06_binning/${i}_contigs.sorted.bam
+
+Explanation:
+
+Read-to-contig mapping provides coverage information for genome binning. For Nanopore reads, the `map-ont` preset in minimap2 is used.
+
+Main output:
+
+    06_binning/${i}_contigs.sorted.bam
+
+## 5.2 Genome binning using SemiBin
+
+    # Activate the conda environment containing SemiBin
+    conda activate semibin
+
+    # Perform long-read metagenomic binning using SemiBin
+    SemiBin single_easy_bin \
+      -i 05_assembly/${i}_metaflye_contigs.fasta \
+      --sequencing-type long_read \
+      -b 06_binning/${i}_contigs.sorted.bam \
+      -o 06_binning/${i}_SemiBin \
+      --environment global \
+      --threads ${threads}
+
+    # Copy bins to a unified directory
+    mkdir -p 06_binning/${i}_bins
+    cp 06_binning/${i}_SemiBin/output_bins/*.fa \
+       06_binning/${i}_bins/
+
+Explanation:
+
+SemiBin is used to reconstruct MAGs from long-read metagenomic assemblies. The option `--sequencing-type long_read` specifies that the input data are long reads.
+
+Main output directory:
+
+    06_binning/${i}_bins
+
+# 6. Bin quality assessment using CheckM2
+
+## 6.1 Assess MAG completeness and contamination
+
+    # Activate the conda environment containing CheckM2
+    conda activate checkm2
+
+    # Configure CheckM2 database if required
+    export CHECKM2DB=${CHECKM2_DB}
+
+    # Evaluate MAG quality
+    checkm2 predict \
+      --threads ${threads} \
+      --input 06_binning/${i}_bins \
+      --output-directory 07_bin_qc/${i}_checkm2 \
+      -x fa
+
+Explanation:
+
+CheckM2 estimates genome completeness and contamination for each MAG. These metrics are essential for selecting high-quality and medium-quality MAGs for taxonomic classification and SGB analysis.
+
+Main output directory:
+
+    07_bin_qc/${i}_checkm2
+
+## 6.2 Select medium-quality and high-quality MAGs
+
+    # Create output directories for selected MAGs
+    mkdir -p 07_bin_qc/${i}_selected_MAGs
+    mkdir -p 07_bin_qc/${i}_high_quality_MAGs
+
+    # Select medium-quality MAGs:
+    # completeness >= 50% and contamination <= 10%
+    awk -F'\t' 'NR==1 {next} $2>=50 && $3<=10 {print $1}' \
+      07_bin_qc/${i}_checkm2/quality_report.tsv \
+      > 07_bin_qc/${i}_medium_quality_MAG_list.txt
+
+    # Select high-quality MAGs:
+    # completeness >= 90% and contamination <= 5%
+    awk -F'\t' 'NR==1 {next} $2>=90 && $3<=5 {print $1}' \
+      07_bin_qc/${i}_checkm2/quality_report.tsv \
+      > 07_bin_qc/${i}_high_quality_MAG_list.txt
+
+    # Copy medium-quality MAGs
+    while read bin
+    do
+      cp 06_binning/${i}_bins/${bin}.fa \
+         07_bin_qc/${i}_selected_MAGs/
+    done < 07_bin_qc/${i}_medium_quality_MAG_list.txt
+
+    # Copy high-quality MAGs
+    while read bin
+    do
+      cp 06_binning/${i}_bins/${bin}.fa \
+         07_bin_qc/${i}_high_quality_MAGs/
+    done < 07_bin_qc/${i}_high_quality_MAG_list.txt
+
+Explanation:
+
+This step selects MAGs based on common quality criteria:
+
+    Medium-quality MAGs: completeness >= 50% and contamination <= 10%
+    High-quality MAGs: completeness >= 90% and contamination <= 5%
+
+For downstream SGB construction and phylogenetic analysis, medium-quality and high-quality MAGs are generally more reliable than all raw bins.
+
+Main outputs:
+
+    07_bin_qc/${i}_selected_MAGs
+    07_bin_qc/${i}_high_quality_MAGs
+
+Note:
+
+The column order of `quality_report.tsv` may vary slightly among CheckM2 versions. If the MAG filtering step fails, check the column names manually using:
+
+    head 07_bin_qc/${i}_checkm2/quality_report.tsv
+
+# 7. Taxonomic annotation of bins
+
+## 7.1 Taxonomic classification of MAGs using GTDB-Tk
+
+    # Activate the conda environment containing GTDB-Tk
+    conda activate gtdbtk
+
+    # Configure GTDB-Tk database
+    export GTDBTK_DATA_PATH=${GTDBTK_DB}
+
+    # Check whether GTDB-Tk and databases are properly configured
+    gtdbtk check_install
+
+    # Run GTDB-Tk classification workflow
+    gtdbtk classify_wf \
+      --genome_dir 07_bin_qc/${i}_selected_MAGs \
+      --extension fa \
+      --out_dir 08_bin_taxonomy/${i}_gtdbtk \
+      --cpus ${threads} \
+      --skip_ani_screen
+
+Explanation:
+
+GTDB-Tk assigns standardized bacterial and archaeal taxonomy to MAGs based on the GTDB reference database. The option `--skip_ani_screen` can speed up the analysis, but it can be removed when accurate species-level placement is required.
+
+Main output directory:
+
+    08_bin_taxonomy/${i}_gtdbtk
+
+## 7.2 Convert GTDB-Tk tree to iTOL format
+
+    # Convert GTDB-Tk tree to iTOL-compatible format if tree file is available
+    gtdbtk convert_to_itol \
+      --input 08_bin_taxonomy/${i}_gtdbtk/gtdbtk.bac120.classify.tree \
+      --output 08_bin_taxonomy/${i}_gtdbtk/${i}_gtdbtk_itol.tree
+
+Explanation:
+
+The converted tree can be uploaded to iTOL for visualization and annotation. If GTDB-Tk does not generate this tree file in your version, this step can be skipped.
+
+# 8. SGB construction and SGB phylogenetic analysis
+
+## 8.1 Collect selected MAGs for SGB construction
+
+    # Activate the conda environment containing Mash
+    conda activate mash
+
+    # Copy selected MAGs into the SGB analysis directory
+    cp 07_bin_qc/${i}_selected_MAGs/*.fa \
+       09_SGBs/MAGs/
+
+    # Generate MAG list
+    find 09_SGBs/MAGs \
+      -name "*.fa" \
+      > 09_SGBs/all_MAGs.txt
+
+Explanation:
+
+This step collects medium-quality and high-quality MAGs for SGB construction. SGB analysis should preferably be performed on quality-controlled MAGs rather than all raw bins.
+
+Main output:
+
+    09_SGBs/all_MAGs.txt
+
+## 8.2 Build Mash sketches for all MAGs
+
+    # Build Mash sketches for MAGs
+    mash sketch \
+      -o 09_SGBs/MAGs_sketch \
+      -k 21 \
+      -s 10000 \
+      09_SGBs/MAGs/*.fa
+
+Explanation:
+
+Mash converts genome sequences into compact sketches and enables rapid pairwise genome distance estimation.
+
+Main output:
+
+    09_SGBs/MAGs_sketch.msh
+
+## 8.3 Calculate pairwise Mash distances
+
+    # Calculate pairwise Mash distances among MAGs
+    mash dist \
+      09_SGBs/MAGs_sketch.msh \
+      09_SGBs/MAGs_sketch.msh \
+      -p ${threads} \
+      > 09_SGBs/mash_distances.tab
+
+Explanation:
+
+This step calculates pairwise Mash distances among all selected MAGs.
+
+Main output:
+
+    09_SGBs/mash_distances.tab
+
+## 8.4 Extract similar MAG pairs for SGB clustering
+
+    # Extract MAG pairs with Mash distance <= 0.05
+    # This threshold approximately corresponds to genome similarity >= 95%
+    awk '$3 <= 0.05 {print $1"\t"$2}' \
+      09_SGBs/mash_distances.tab \
+      > 09_SGBs/similar_pairs.tsv
+
+Explanation:
+
+A Mash distance threshold of 0.05 is used as an approximate species-level boundary. For publication-level SGB definition, FastANI or dRep-based ANI clustering is recommended for further confirmation.
+
+Main output:
+
+    09_SGBs/similar_pairs.tsv
+
+## 8.5 Cluster MAGs into SGBs
+
+    # Generate Python script for graph-based SGB clustering
+    cat > 09_SGBs/scripts/cluster_sgbs.py << 'PYEOF'
+    #!/usr/bin/env python3
+
+    import argparse
+    import networkx as nx
+
+    parser = argparse.ArgumentParser(description="Cluster MAGs into SGBs based on Mash distance.")
+    parser.add_argument("--mag-list", required=True, help="File containing all MAG paths.")
+    parser.add_argument("--pairs", required=True, help="TSV file containing similar MAG pairs.")
+    parser.add_argument("--out", required=True, help="Output SGB clustering table.")
+    args = parser.parse_args()
+
+    G = nx.Graph()
+
+    with open(args.mag_list) as f:
+        for line in f:
+            mag = line.strip()
+            if mag:
+                G.add_node(mag)
+
+    with open(args.pairs) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            a, b = line.split()[:2]
+            G.add_edge(a, b)
+
+    clusters = list(nx.connected_components(G))
+
+    with open(args.out, "w") as out:
+        out.write("SGB_ID\tRepresentative_MAG\tCluster_Size\tMAG\n")
+        for idx, cluster in enumerate(clusters, start=1):
+            files_sorted = sorted(cluster)
+            rep = files_sorted[0]
+            sgb_id = f"SGB_{idx:05d}"
+            for mag in files_sorted:
+                out.write(f"{sgb_id}\t{rep}\t{len(files_sorted)}\t{mag}\n")
+
+    print(f"Total SGBs: {len(clusters)}")
+    print(f"SGB clustering results written to {args.out}")
+    PYEOF
+
+    # Make the script executable
+    chmod +x 09_SGBs/scripts/cluster_sgbs.py
+
+    # Activate Python environment containing networkx
+    conda activate python
+
+    # Run SGB clustering
+    python 09_SGBs/scripts/cluster_sgbs.py \
+      --mag-list 09_SGBs/all_MAGs.txt \
+      --pairs 09_SGBs/similar_pairs.tsv \
+      --out 09_SGBs/SGB_clusters.tsv
+
+Explanation:
+
+This script performs graph-based SGB clustering. Each MAG is treated as a node. MAG pairs with Mash distance ≤ 0.05 are connected by edges. Connected components are defined as SGBs. Singleton MAGs are also retained as independent SGBs.
+
+Main output:
+
+    09_SGBs/SGB_clusters.tsv
+
+## 8.6 Extract representative MAGs for each SGB
+
+    # Extract representative MAGs
+    cut -f2 09_SGBs/SGB_clusters.tsv | \
+      tail -n +2 | \
+      sort | \
+      uniq \
+      > 09_SGBs/representative_MAGs.txt
+
+    # Copy representative MAGs to a separate directory
+    while read mag
+    do
+      cp ${mag} 09_SGBs/repre_MAGs/
+    done < 09_SGBs/representative_MAGs.txt
+
+Explanation:
+
+This step extracts one representative MAG from each SGB for phylogenetic tree construction.
+
+Main outputs:
+
+    09_SGBs/representative_MAGs.txt
+    09_SGBs/repre_MAGs/
+
+## 8.7 Phylogenetic tree construction for representative SGBs using PhyloPhlAn
+
+    # Activate the conda environment containing PhyloPhlAn
+    conda activate phylophlan
+
+    # Construct phylogenetic tree for representative SGBs
+    phylophlan \
+      -i 09_SGBs/repre_MAGs/ \
+      --diversity high \
+      -d ${PHYLOPHLAN_DB} \
+      --fast \
+      --min_num_markers 50 \
+      --nproc ${threads} \
+      -o 10_SGB_tree/${i}_repre_MAGs_phylophlan \
+      -f ${PHYLOPHLAN_CFG} \
+      --genome_extension fa
+
+Explanation:
+
+PhyloPhlAn constructs a phylogenetic tree based on conserved marker genes from representative MAGs. This tree can be used to display the evolutionary relationships among SGBs.
+
+Main output directory:
+
+    10_SGB_tree/${i}_repre_MAGs_phylophlan
+
+# 9. Recommended final output structure
+
+    ${i}_nanopore_metagenome/
+    ├── 01_raw_qc
+    ├── 02_clean_reads
+    ├── 03_taxonomy
+    ├── 04_ARGs
+    ├── 05_assembly
+    ├── 06_binning
+    ├── 07_bin_qc
+    ├── 08_bin_taxonomy
+    ├── 09_SGBs
+    └── 10_SGB_tree
+
+Explanation:
+
+This directory structure keeps each analysis module independent and makes it easier to check intermediate results, repeat failed steps and prepare figures or supplementary tables.
+
+# 10. Example command summary
+
+## 10.1 Prepare sample name
+
+    i=sample_name
+    threads=24
+    raw_fastq=${i}.fastq.gz
+
+## 10.2 Run major modules sequentially
+
+    # 1. Raw data quality control
+    # Adapter removal, read quality evaluation and read filtering
+
+    # 2. Read-based taxonomic profiling
+    # Kraken2
+
+    # 3. ARG annotation and quantification
+    # ABRicate and normalized abundance calculation
+
+    # 4. Metagenomic assembly
+    # MetaFlye
+
+    # 5. Genome binning
+    # minimap2 + SemiBin
+
+    # 6. Bin quality assessment
+    # CheckM2
+
+    # 7. Bin taxonomy
+    # GTDB-Tk
+
+    # 8. SGB construction and phylogenetic analysis
+    # Mash + graph clustering + PhyloPhlAn
+
+# 11. Notes for publication-level analysis
+
+## 11.1 Database and software versions
+
+    # Recommended version recording commands
+    porechop_abi --version
+    NanoPlot --version
+    chopper --version
+    seqkit version
+    kraken2 --version
+    abricate --version
+    flye --version
+    minimap2 --version
+    samtools --version
+    SemiBin --version
+    checkm2 --version
+    gtdbtk --version
+    mash --version
+    phylophlan --version
+
+Explanation:
+
+For manuscript preparation, software versions and database versions should be recorded to ensure reproducibility.
+
+## 11.2 Suggested MAG quality criteria
+
+    # High-quality MAGs:
+    # completeness >= 90% and contamination <= 5%
+
+    # Medium-quality MAGs:
+    # completeness >= 50% and contamination <= 10%
+
+Explanation:
+
+These criteria are commonly used for MAG quality assessment. For SGB construction and phylogenetic tree analysis, using medium-quality and high-quality MAGs is recommended.
+
+## 11.3 Suggested SGB definition strategy
+
+    # Fast strategy:
+    # Mash distance <= 0.05
+
+    # More rigorous strategy:
+    # ANI >= 95% using FastANI, dRep or skani
+
+Explanation:
+
+Mash-based clustering is fast and useful for exploratory analysis. For formal publication-level SGB definition, ANI-based verification is recommended.
