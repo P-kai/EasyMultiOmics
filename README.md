@@ -8,7 +8,7 @@ The pipeline supports beginner-friendly yet robust analytical procedures and is 
 
 ## Key Features and Modules
 
-### 1. Short-read Metagenomics (Next-Generation Sequencing)
+### 1. Next-Generation Short-read Metagenomics
 - Raw data quality control  
 - Read-based taxonomic profiling  
 - Read-based antimicrobial resistance gene (ARG) annotation  
@@ -20,7 +20,7 @@ The pipeline supports beginner-friendly yet robust analytical procedures and is 
 
 ---
 
-### 2. Long-read Metagenomics (Nanopore Sequencing, reference to https://github.com/P-kai/EasyNanoMeta)
+### 2. Nanopore Long-read Metagenomics (Reference to https://github.com/P-kai/EasyNanoMeta)
 - Raw data quality control  
 - Read-based taxonomic profiling  
 - ARG annotation and quantification  
@@ -32,7 +32,7 @@ The pipeline supports beginner-friendly yet robust analytical procedures and is 
 
 ---
 
-### 3. Hybrid Assembly (Short-read and Long-read metagenomes)
+### 3. Hybrid Assembly and Analysis (Short-read and Long-read metagenomes)
 - Hybrid metagenomic assembly  
 - Genome binning  
 - Bin quality assessment  
