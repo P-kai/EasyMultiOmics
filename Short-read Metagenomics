@@ -1,15 +1,87 @@
-#!/bin/bash
-
 # EasyMultiOmics: Short-read metagenomic analysis workflow
-# Module: Short-read Metagenomics
-# Description: Quality control, taxonomic profiling, ARG annotation and quantification, assembly, binning, bin quality control, bin taxonomy, and MAG phylogeny
 
+```bash
+# Version: 1.01, 2026/04/30
+# Tested on CentOS 7 / Linux
+# Module: Short-read metagenomics
+# Description:
+# This workflow performs quality control, taxonomic profiling, ARG annotation,
+# metagenomic assembly, genome binning, MAG quality assessment, MAG taxonomy,
+# SGB clustering and phylogenetic tree construction.
+```
+
+---
+
+# 0. Basic configuration
+
+## 0.1 Set sample name and computational resources
+
+```bash
+# Use the first command-line argument as the sample name
 sample=$1
+
+# Set the number of CPU threads
 threads=24
 
+# Define paired-end short-read input files
 R1=${sample}_R1.fastq.gz
 R2=${sample}_R2.fastq.gz
 
+# Stop the script immediately if any command fails
+set -euo pipefail
+```
+
+**Explanation:**  
+This section defines the basic input information. The variable `sample` is provided when running the script. For example:
+
+```bash
+bash EasyMultiOmics_short_read.sh sample01
+```
+
+The script will automatically recognize the following input files:
+
+```bash
+sample01_R1.fastq.gz
+sample01_R2.fastq.gz
+```
+
+`threads=24` means that 24 CPU threads will be used for tools that support parallel computing.
+
+---
+
+## 0.2 Set database paths
+
+```bash
+# Kraken2 / Bracken database
+KRAKEN2_DB=/path/to/kraken2_database
+
+# ARGs_OAP database and classification structure file
+ARG_DB=/path/to/database.fasta
+ARG_STRUCTURE=/path/to/structure.txt
+
+# GTDB-Tk database
+GTDBTK_DB=/path/to/gtdbtk_database
+
+# PhyloPhlAn database and configuration file
+PHYLOPHLAN_DB=phylophlan_databases/phylophlan
+PHYLOPHLAN_CFG=/ifs1/Software/Miniconda3/envs/phylophlan/lib/python3.13/site-packages/phylophlan/phylophlan_configs/supermatrix_aa.cfg
+```
+
+**Explanation:**  
+This section defines the database paths required by different tools. Before running the workflow, all `/path/to/...` paths should be replaced with the real paths on your server.
+
+Required databases include:
+
+- Kraken2 / Bracken database for taxonomic profiling
+- ARGs_OAP database for antibiotic resistance gene annotation
+- GTDB-Tk database for MAG taxonomic classification
+- PhyloPhlAn database for phylogenetic tree construction
+
+---
+
+## 0.3 Create output directories
+
+```bash
 mkdir -p QC
 mkdir -p Taxonomy
 mkdir -p ARGs
@@ -17,15 +89,26 @@ mkdir -p Assembly
 mkdir -p Binning
 mkdir -p Bin_QC
 mkdir -p Bin_Taxonomy
-mkdir -p MAG_Tree
+mkdir -p SGBs
+mkdir -p SGBs/MAGs
+mkdir -p SGBs/repre_MAGs
+mkdir -p SGBs/scripts
+```
 
+**Explanation:**  
+This section creates all output directories used in the workflow. The results of different analysis modules will be stored in separate folders to keep the project organized.
 
-# ============================================================
-# Raw data quality control
-# ============================================================
+---
 
+# 1. Raw data quality control
+
+## 1.1 Quality filtering and adapter trimming using fastp
+
+```bash
+# Activate the conda environment containing fastp
 conda activate fastp
 
+# Perform quality control for paired-end short reads
 fastp \
   -i ${R1} \
   -I ${R2} \
@@ -34,16 +117,42 @@ fastp \
   -h QC/${sample}_fastp.html \
   -j QC/${sample}_fastp.json \
   -w ${threads}
+```
 
+**Explanation:**  
+This step uses `fastp` to perform quality control of paired-end short-read metagenomic sequencing data.
 
-# ============================================================
-# Read-based taxonomic profiling
-# ============================================================
+Main functions include:
 
+- adapter trimming
+- low-quality base removal
+- low-quality read filtering
+- quality report generation
+
+Main output files:
+
+```bash
+QC/${sample}_clean_R1.fastq.gz
+QC/${sample}_clean_R2.fastq.gz
+QC/${sample}_fastp.html
+QC/${sample}_fastp.json
+```
+
+The cleaned reads will be used for all downstream analyses.
+
+---
+
+# 2. Read-based taxonomic profiling
+
+## 2.1 Taxonomic classification using Kraken2
+
+```bash
+# Activate the conda environment containing Kraken2
 conda activate kraken2
 
+# Perform read-based taxonomic classification
 kraken2 \
-  --db /path/to/kraken2_database \
+  --db ${KRAKEN2_DB} \
   --threads ${threads} \
   --paired \
   --gzip-compressed \
@@ -51,70 +160,189 @@ kraken2 \
   --output Taxonomy/${sample}_kraken2_output.txt \
   QC/${sample}_clean_R1.fastq.gz \
   QC/${sample}_clean_R2.fastq.gz
+```
 
+**Explanation:**  
+Kraken2 classifies metagenomic reads based on k-mer matching against a reference database.
+
+Main output files:
+
+```bash
+Taxonomy/${sample}_kraken2_report.txt
+Taxonomy/${sample}_kraken2_output.txt
+```
+
+The `kraken2_report.txt` file is used as the input for Bracken abundance estimation.
+
+---
+
+## 2.2 Species-level abundance estimation using Bracken
+
+```bash
+# Activate the conda environment containing Bracken
 conda activate bracken
 
+# Estimate species-level abundance based on Kraken2 results
 bracken \
-  -d /path/to/kraken2_database \
+  -d ${KRAKEN2_DB} \
   -i Taxonomy/${sample}_kraken2_report.txt \
   -o Taxonomy/${sample}_bracken_species.txt \
   -r 150 \
   -l S \
-  -t ${threads}
+  -t 10
+```
 
+**Explanation:**  
+Bracken estimates species-level abundance based on Kraken2 classification results.
 
-# ============================================================
-# ARG annotation and quantification using ARGs_OAP
-# ============================================================
+Important parameters:
 
+```bash
+-r 150
+```
+
+This means the read length is set to 150 bp. Modify this value according to your actual sequencing read length.
+
+```bash
+-l S
+```
+
+This means abundance will be estimated at the species level.
+
+```bash
+-t 10
+```
+
+This is the minimum read threshold, not the number of threads.
+
+Main output file:
+
+```bash
+Taxonomy/${sample}_bracken_species.txt
+```
+
+---
+
+# 3. ARG annotation and quantification using ARGs_OAP
+
+## 3.1 Prepare input files for ARGs_OAP
+
+```bash
+# Activate the conda environment containing ARGs_OAP and seqkit
 conda activate args_oap
 
+# Create output directories for ARGs_OAP
 mkdir -p ARGs/${sample}_ARGs_OAP
 mkdir -p ARGs/${sample}_ARGs_OAP/stage_one
 mkdir -p ARGs/${sample}_ARGs_OAP/stage_two
 
-# Input files for ARGs_OAP
-# ARGs_OAP supports fasta format input in this workflow.
-# If your input files are fastq.gz, please convert them to fasta first.
-
+# Convert cleaned FASTQ files to FASTA format
 seqkit fq2fa QC/${sample}_clean_R1.fastq.gz > ARGs/${sample}_R1.clean.fa
 seqkit fq2fa QC/${sample}_clean_R2.fastq.gz > ARGs/${sample}_R2.clean.fa
 
-cat ARGs/${sample}_R1.clean.fa ARGs/${sample}_R2.clean.fa > ARGs/${sample}_clean_reads.fa
+# Merge paired-end reads into one FASTA file
+cat ARGs/${sample}_R1.clean.fa \
+    ARGs/${sample}_R2.clean.fa \
+    > ARGs/${sample}_clean_reads.fa
+```
 
+**Explanation:**  
+ARGs_OAP can use FASTA-format input in this workflow. Therefore, the cleaned FASTQ files are first converted into FASTA files using `seqkit fq2fa`.
 
-# Optional: build customized ARGs_OAP database
-# Use this step only when using a customized database.
-# The database can contain nucleotide or amino acid sequences.
+Main output file:
+
+```bash
+ARGs/${sample}_clean_reads.fa
+```
+
+This merged FASTA file will be used for ARG annotation.
+
+---
+
+## 3.2 Optional: build customized ARGs_OAP database
+
+```bash
+# Use this step only when a customized ARG database is required
+# The database may contain nucleotide or amino acid sequences
 
 # args_oap make_db \
 #   -i /path/to/custom_database.fasta
+```
 
+**Explanation:**  
+This step is optional. If you want to use a customized antibiotic resistance gene database, you can build it using `args_oap make_db`.
 
-# Stage one: ARG annotation using ARGs_OAP
+If you are using the default or already prepared ARGs_OAP database, this step can be skipped.
 
+---
+
+## 3.3 Stage one: ARG annotation
+
+```bash
+# Perform ARG annotation using ARGs_OAP
 args_oap stage_one \
   -i ARGs/${sample}_clean_reads.fa \
   -o ARGs/${sample}_ARGs_OAP/stage_one \
   -f fa \
   -t ${threads} \
-  --database /path/to/database.fasta
+  --database ${ARG_DB}
+```
 
+**Explanation:**  
+This step performs ARG annotation by comparing metagenomic reads against the ARG database.
 
-# Stage two: ARG classification and quantification using ARGs_OAP
+Main output directory:
 
+```bash
+ARGs/${sample}_ARGs_OAP/stage_one
+```
+
+This directory contains the preliminary ARG annotation results.
+
+---
+
+## 3.4 Stage two: ARG classification and quantification
+
+```bash
+# Classify and quantify annotated ARGs
 args_oap stage_two \
   -i ARGs/${sample}_ARGs_OAP/stage_one \
+  -o ARGs/${sample}_ARGs_OAP/stage_two \
   -t ${threads} \
-  --database /path/to/database.fasta \
-  --structure1 /path/to/structure.txt
+  --database ${ARG_DB} \
+  --structure1 ${ARG_STRUCTURE}
+```
 
-# ============================================================
-# Metagenomic assembly
-# ============================================================
+**Explanation:**  
+This step classifies and quantifies ARGs based on the annotation results from stage one.
 
+Main output directory:
+
+```bash
+ARGs/${sample}_ARGs_OAP/stage_two
+```
+
+This step usually generates ARG abundance tables and classification results.
+
+Note: different ARGs_OAP versions may use slightly different parameters. Before formal analysis, check the command-line help:
+
+```bash
+args_oap -h
+args_oap stage_one -h
+args_oap stage_two -h
+```
+
+---
+
+# 4. Metagenomic assembly
+
+## 4.1 Assembly using MEGAHIT
+
+```bash
+# Activate the conda environment containing MEGAHIT
 conda activate megahit
 
+# Assemble cleaned paired-end reads into metagenomic contigs
 megahit \
   -1 QC/${sample}_clean_R1.fastq.gz \
   -2 QC/${sample}_clean_R2.fastq.gz \
@@ -122,17 +350,36 @@ megahit \
   -t ${threads} \
   --min-contig-len 1000
 
-cp Assembly/${sample}_megahit/final.contigs.fa Assembly/${sample}_contigs.fa
+# Copy final contigs to a simplified output file
+cp Assembly/${sample}_megahit/final.contigs.fa \
+   Assembly/${sample}_contigs.fa
+```
 
+**Explanation:**  
+MEGAHIT is used for short-read metagenomic assembly. The parameter `--min-contig-len 1000` keeps only contigs longer than or equal to 1000 bp.
 
-# ============================================================
-# Genome binning using MetaWRAP MetaBAT2
-# ============================================================
+Main output file:
 
+```bash
+Assembly/${sample}_contigs.fa
+```
+
+This contig file will be used for genome binning.
+
+---
+
+# 5. Genome binning using MetaWRAP MetaBAT2
+
+## 5.1 Metagenomic binning
+
+```bash
+# Activate the conda environment containing MetaWRAP
 conda activate metawrap
 
+# Create output directory for MetaBAT2 binning
 mkdir -p Binning/${sample}_metawrap_metabat2
 
+# Perform genome binning using MetaWRAP with MetaBAT2
 metawrap binning \
   -o Binning/${sample}_metawrap_metabat2 \
   -t ${threads} \
@@ -140,82 +387,218 @@ metawrap binning \
   --metabat2 \
   QC/${sample}_clean_R1.fastq.gz \
   QC/${sample}_clean_R2.fastq.gz
+```
 
+**Explanation:**  
+This step reconstructs metagenome-assembled genomes, also known as MAGs, from assembled contigs.
 
-# ============================================================
-# Bin quality assessment using CheckM2
-# ============================================================
+MetaWRAP uses MetaBAT2 for binning based on:
 
+- contig sequence composition
+- read coverage depth
+- paired-end read mapping information
+
+Main output directory:
+
+```bash
+Binning/${sample}_metawrap_metabat2/metabat2_bins
+```
+
+---
+
+# 6. Bin quality assessment using CheckM2
+
+## 6.1 Estimate MAG completeness and contamination
+
+```bash
+# Activate the conda environment containing CheckM2
 conda activate checkm2
 
+# Assess bin quality
 checkm2 predict \
   --threads ${threads} \
   --input Binning/${sample}_metawrap_metabat2/metabat2_bins \
   --output-directory Bin_QC/${sample}_checkm2 \
   -x fa
+```
 
+**Explanation:**  
+CheckM2 evaluates the quality of MAGs by estimating:
 
-# ============================================================
-# Taxonomic annotation of bins using GTDB-Tk
-# ============================================================
+- genome completeness
+- genome contamination
 
+Main output directory:
+
+```bash
+Bin_QC/${sample}_checkm2
+```
+
+Commonly used MAG quality criteria:
+
+```bash
+High-quality MAG:
+  completeness >= 90%
+  contamination <= 5%
+
+Medium-quality MAG:
+  completeness >= 50%
+  contamination <= 10%
+```
+
+For publication-level analysis, it is recommended to filter MAGs according to completeness and contamination before downstream SGB construction.
+
+---
+
+# 7. Taxonomic annotation of MAGs using GTDB-Tk
+
+## 7.1 Assign taxonomy to genome bins
+
+```bash
+# Activate the conda environment containing GTDB-Tk
 conda activate gtdbtk
 
-export GTDBTK_DATA_PATH=/path/to/gtdbtk_database
+# Set GTDB-Tk database path
+export GTDBTK_DATA_PATH=${GTDBTK_DB}
 
+# Perform taxonomic classification of MAGs
 gtdbtk classify_wf \
   --genome_dir Binning/${sample}_metawrap_metabat2/metabat2_bins \
   --extension fa \
   --out_dir Bin_Taxonomy/${sample}_gtdbtk \
   --cpus ${threads} \
   --skip_ani_screen
+```
 
-# ============================================================
-# SGB construction based on Mash distance
-# ============================================================
+**Explanation:**  
+GTDB-Tk assigns standardized taxonomy to MAGs using the GTDB reference database.
 
+Main output directory:
+
+```bash
+Bin_Taxonomy/${sample}_gtdbtk
+```
+
+The option:
+
+```bash
+--skip_ani_screen
+```
+
+can speed up classification. However, if accurate species-level classification is required, especially for manuscript-level analysis, this option can be removed.
+
+---
+
+# 8. SGB construction based on Mash distance
+
+## 8.1 Collect MAGs for SGB clustering
+
+```bash
+# Activate the conda environment containing Mash
 conda activate mash
 
-mkdir -p SGBs
-mkdir -p SGBs/MAGs
-mkdir -p SGBs/repre_MAGs
-mkdir -p SGBs/scripts
+# Copy all MAGs into the SGB analysis directory
+cp Binning/${sample}_metawrap_metabat2/metabat2_bins/*.fa \
+   SGBs/MAGs/
+```
 
-# Copy high-quality or selected MAGs into SGBs/MAGs
-# Please modify the input path according to your binning results
-cp Binning/${sample}_metawrap_metabat2/metabat2_bins/*.fa SGBs/MAGs/
+**Explanation:**  
+This step collects MAG files for SGB clustering.
 
+In this version, all MAGs are copied into the SGB directory. For more rigorous analysis, only high-quality or medium-quality MAGs should be selected based on CheckM2 results.
 
-# Build Mash sketches for all MAGs
+---
 
+## 8.2 Build Mash sketches for all MAGs
+
+```bash
+# Build Mash sketches
 mash sketch \
   -o SGBs/MAGs_sketch \
   -k 21 \
   -s 10000 \
   SGBs/MAGs/*.fa
+```
 
+**Explanation:**  
+Mash converts genome sequences into compact sketches for rapid genome distance calculation.
 
-# Calculate pairwise Mash distances
+Important parameters:
 
+```bash
+-k 21
+```
+
+This sets the k-mer size to 21.
+
+```bash
+-s 10000
+```
+
+This sets the sketch size to 10,000.
+
+Main output file:
+
+```bash
+SGBs/MAGs_sketch.msh
+```
+
+---
+
+## 8.3 Calculate pairwise Mash distances
+
+```bash
+# Calculate pairwise Mash distances among MAGs
 mash dist \
   SGBs/MAGs_sketch.msh \
   SGBs/MAGs_sketch.msh \
   -p ${threads} \
   > SGBs/mash_distances.tab
+```
 
+**Explanation:**  
+This step calculates pairwise Mash distances among all MAGs.
 
-# Extract similar MAG pairs with Mash distance <= 0.05
-# This threshold corresponds approximately to genome similarity >= 95%
+Main output file:
 
-awk '$3<=0.05 {print $1"\t"$2}' \
+```bash
+SGBs/mash_distances.tab
+```
+
+The third column of this file represents the Mash distance between two MAGs.
+
+---
+
+## 8.4 Extract similar MAG pairs
+
+```bash
+# Extract MAG pairs with Mash distance <= 0.05
+# This threshold approximately corresponds to genome similarity >= 95%
+awk '$3 <= 0.05 {print $1"\t"$2}' \
   SGBs/mash_distances.tab \
   > SGBs/similar_pairs.tsv
+```
 
+**Explanation:**  
+This step extracts MAG pairs with Mash distance ≤ 0.05.
 
-# ============================================================
-# Cluster MAGs into SGBs
-# ============================================================
+This threshold is approximately equivalent to 95% genome similarity and is often used as a rough species-level boundary.
 
+Main output file:
+
+```bash
+SGBs/similar_pairs.tsv
+```
+
+Note: Mash-based clustering is fast but approximate. For high-quality publication analysis, FastANI or dRep-based ANI clustering is recommended.
+
+---
+
+# 9. Cluster MAGs into SGBs
+
+## 9.1 Generate Python script for SGB clustering
+
+```bash
 cat > SGBs/scripts/cluster_sgbs.py << 'EOF'
 #!/usr/bin/env python3
 
@@ -223,32 +606,46 @@ import networkx as nx
 import argparse
 
 def main():
-    parser = argparse.ArgumentParser(description="Cluster MAGs into SGBs based on pairwise Mash similarity.")
-    parser.add_argument("-i", "--input", required=True, help="Input file containing similar MAG pairs in TSV format.")
-    parser.add_argument("-o", "--output", required=True, help="Output file for SGB clustering results.")
+    parser = argparse.ArgumentParser(
+        description="Cluster MAGs into SGBs based on pairwise Mash similarity."
+    )
+
+    parser.add_argument(
+        "-i", "--input",
+        required=True,
+        help="Input file containing similar MAG pairs in TSV format."
+    )
+
+    parser.add_argument(
+        "-o", "--output",
+        required=True,
+        help="Output file for SGB clustering results."
+    )
+
     args = parser.parse_args()
 
-    edges = []
+    G = nx.Graph()
 
     with open(args.input) as f:
         for line in f:
             line = line.strip()
+
             if not line:
                 continue
-            a, b = line.split()[:2]
-            edges.append((a, b))
 
-    G = nx.Graph()
-    G.add_edges_from(edges)
+            a, b = line.split()[:2]
+            G.add_edge(a, b)
 
     clusters = list(nx.connected_components(G))
 
     with open(args.output, "w") as out:
         out.write("Representative_MAG\tCluster_Size\tFiles\n")
+
         for cluster in clusters:
-            rep = sorted(cluster)[0]
-            cluster_size = len(cluster)
             files_sorted = sorted(cluster)
+            rep = files_sorted[0]
+            cluster_size = len(files_sorted)
+
             for mag in files_sorted:
                 out.write(f"{rep}\t{cluster_size}\t{mag}\n")
 
@@ -259,41 +656,232 @@ if __name__ == "__main__":
     main()
 EOF
 
+# Make the script executable
 chmod +x SGBs/scripts/cluster_sgbs.py
+```
 
+**Explanation:**  
+This Python script performs graph-based clustering.
 
-# Run SGB clustering
+The logic is:
 
+1. Each MAG is treated as a node.
+2. If two MAGs have Mash distance ≤ 0.05, an edge is added between them.
+3. Connected MAGs are grouped into the same SGB.
+4. The first MAG in each sorted cluster is selected as the representative MAG.
+
+This is a single-linkage clustering strategy.
+
+---
+
+## 9.2 Run SGB clustering
+
+```bash
+# Activate Python environment containing networkx
 conda activate python
 
+# Cluster MAGs into SGBs
 python SGBs/scripts/cluster_sgbs.py \
   -i SGBs/similar_pairs.tsv \
   -o SGBs/SGB_clusters.tsv
+```
 
+**Explanation:**  
+This step runs the Python script and generates the SGB clustering result.
 
-# Extract representative MAGs for each SGB
+Main output file:
 
-cut -f1 SGBs/SGB_clusters.tsv | tail -n +2 | sort | uniq > SGBs/representative_MAGs.txt
+```bash
+SGBs/SGB_clusters.tsv
+```
 
+The output table contains three columns:
+
+```bash
+Representative_MAG
+Cluster_Size
+Files
+```
+
+---
+
+## 9.3 Extract representative MAGs
+
+```bash
+# Extract representative MAG names
+cut -f1 SGBs/SGB_clusters.tsv | \
+  tail -n +2 | \
+  sort | \
+  uniq \
+  > SGBs/representative_MAGs.txt
+
+# Copy representative MAGs into the representative MAG directory
 while read mag
 do
   cp ${mag} SGBs/repre_MAGs/
 done < SGBs/representative_MAGs.txt
+```
 
+**Explanation:**  
+This step extracts the representative MAG of each SGB and copies these representative genomes into a separate directory.
 
-# ============================================================
-# Phylogenetic tree construction for representative SGBs
-# ============================================================
+Main output files and directory:
 
+```bash
+SGBs/representative_MAGs.txt
+SGBs/repre_MAGs/
+```
+
+The representative MAGs will be used for phylogenetic tree construction.
+
+---
+
+# 10. Phylogenetic tree construction for representative SGBs
+
+## 10.1 Build phylogenetic tree using PhyloPhlAn
+
+```bash
+# Activate the conda environment containing PhyloPhlAn
 conda activate phylophlan
 
+# Construct phylogenetic tree for representative MAGs
 phylophlan \
   -i SGBs/repre_MAGs/ \
   --diversity high \
-  -d phylophlan_databases/phylophlan \
+  -d ${PHYLOPHLAN_DB} \
   --fast \
   --min_num_markers 50 \
   --nproc ${threads} \
   -o SGBs/repre_MAGs_phylophlan \
-  -f /ifs1/Software/Miniconda3/envs/phylophlan/lib/python3.13/site-packages/phylophlan/phylophlan_configs/supermatrix_aa.cfg \
+  -f ${PHYLOPHLAN_CFG} \
   --genome_extension fa
+```
+
+**Explanation:**  
+PhyloPhlAn constructs a phylogenetic tree based on conserved marker genes from representative MAGs.
+
+Important parameters:
+
+```bash
+--diversity high
+```
+
+This is suitable for phylogenetically diverse genomes.
+
+```bash
+--min_num_markers 50
+```
+
+This requires at least 50 marker genes for reliable phylogenetic placement.
+
+Main output directory:
+
+```bash
+SGBs/repre_MAGs_phylophlan
+```
+
+The final phylogenetic tree can be used for downstream visualization in tools such as iTOL, FigTree, or R packages such as `ggtree`.
+
+---
+
+# 11. Recommended improvements before publication-level analysis
+
+## 11.1 Filter MAGs before SGB clustering
+
+```bash
+# Recommended quality criteria:
+# High-quality MAGs:
+#   completeness >= 90%
+#   contamination <= 5%
+#
+# Medium-quality MAGs:
+#   completeness >= 50%
+#   contamination <= 10%
+```
+
+**Explanation:**  
+The current workflow directly copies all MetaBAT2 bins into the SGB analysis directory. For publication-level analysis, it is better to filter MAGs based on CheckM2 results before SGB construction.
+
+---
+
+## 11.2 Use ANI-based clustering for final SGB definition
+
+```bash
+# Recommended tools:
+# FastANI
+# dRep
+# skani
+```
+
+**Explanation:**  
+Mash distance is useful for rapid genome similarity estimation, but ANI-based methods are more accurate for species-level genome clustering.
+
+A more rigorous strategy is:
+
+1. Use Mash for rapid preliminary clustering.
+2. Use FastANI or dRep to confirm species-level boundaries.
+3. Define SGBs using ANI ≥ 95%.
+
+---
+
+## 11.3 Check software versions
+
+```bash
+fastp --version
+kraken2 --version
+bracken -h
+megahit --version
+metawrap -h
+checkm2 --version
+gtdbtk --version
+mash --version
+phylophlan --version
+```
+
+**Explanation:**  
+Recording software versions is important for reproducibility, especially when preparing a manuscript or methods section.
+
+---
+
+# 12. Example command to run this workflow
+
+```bash
+bash EasyMultiOmics_short_read_metagenomics.sh sample01
+```
+
+**Explanation:**  
+Before running the script, make sure the input files are named as follows:
+
+```bash
+sample01_R1.fastq.gz
+sample01_R2.fastq.gz
+```
+
+After running, all results will be organized into the following directories:
+
+```bash
+QC/
+Taxonomy/
+ARGs/
+Assembly/
+Binning/
+Bin_QC/
+Bin_Taxonomy/
+SGBs/
+```
+
+---
+
+# 13. Summary of workflow outputs
+
+| Step | Output directory | Main result |
+|---|---|---|
+| Quality control | `QC/` | Clean reads and fastp reports |
+| Taxonomic profiling | `Taxonomy/` | Kraken2 and Bracken taxonomic profiles |
+| ARG annotation | `ARGs/` | ARG annotation and abundance results |
+| Assembly | `Assembly/` | Metagenomic contigs |
+| Binning | `Binning/` | MAGs generated by MetaBAT2 |
+| Bin quality assessment | `Bin_QC/` | Completeness and contamination |
+| Bin taxonomy | `Bin_Taxonomy/` | GTDB-Tk taxonomic classification |
+| SGB clustering | `SGBs/` | SGB clusters and representative MAGs |
+| Phylogenetic analysis | `SGBs/repre_MAGs_phylophlan/` | Phylogenetic tree of representative SGBs |
