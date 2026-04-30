@@ -1,7 +1,7 @@
 # EasyMultiOmics: Short-read metagenomic analysis workflow
 
 ```bash
-# Version: 1.01, 2026/04/30
+# Data: 2026/04/30
 # Tested on CentOS 7 / Linux
 # Module: Short-read metagenomics
 # Description:
@@ -31,7 +31,7 @@ R2=${sample}_R2.fastq.gz
 set -euo pipefail
 ```
 
-**Explanation:**  
+**Note:**  
 This section defines the basic input information. The variable `sample` is provided when running the script. For example:
 
 ```bash
@@ -67,7 +67,7 @@ PHYLOPHLAN_DB=phylophlan_databases/phylophlan
 PHYLOPHLAN_CFG=/ifs1/Software/Miniconda3/envs/phylophlan/lib/python3.13/site-packages/phylophlan/phylophlan_configs/supermatrix_aa.cfg
 ```
 
-**Explanation:**  
+**Note:**  
 This section defines the database paths required by different tools. Before running the workflow, all `/path/to/...` paths should be replaced with the real paths on your server.
 
 Required databases include:
@@ -95,7 +95,7 @@ mkdir -p SGBs/repre_MAGs
 mkdir -p SGBs/scripts
 ```
 
-**Explanation:**  
+**Note:**  
 This section creates all output directories used in the workflow. The results of different analysis modules will be stored in separate folders to keep the project organized.
 
 ---
@@ -119,7 +119,7 @@ fastp \
   -w ${threads}
 ```
 
-**Explanation:**  
+**Note:**  
 This step uses `fastp` to perform quality control of paired-end short-read metagenomic sequencing data.
 
 Main functions include:
@@ -162,7 +162,7 @@ kraken2 \
   QC/${sample}_clean_R2.fastq.gz
 ```
 
-**Explanation:**  
+**Note:**  
 Kraken2 classifies metagenomic reads based on k-mer matching against a reference database.
 
 Main output files:
@@ -192,7 +192,7 @@ bracken \
   -t 10
 ```
 
-**Explanation:**  
+**Note:**  
 Bracken estimates species-level abundance based on Kraken2 classification results.
 
 Important parameters:
@@ -246,7 +246,7 @@ cat ARGs/${sample}_R1.clean.fa \
     > ARGs/${sample}_clean_reads.fa
 ```
 
-**Explanation:**  
+**Note:**  
 ARGs_OAP can use FASTA-format input in this workflow. Therefore, the cleaned FASTQ files are first converted into FASTA files using `seqkit fq2fa`.
 
 Main output file:
@@ -269,7 +269,7 @@ This merged FASTA file will be used for ARG annotation.
 #   -i /path/to/custom_database.fasta
 ```
 
-**Explanation:**  
+**Note:**  
 This step is optional. If you want to use a customized antibiotic resistance gene database, you can build it using `args_oap make_db`.
 
 If you are using the default or already prepared ARGs_OAP database, this step can be skipped.
@@ -288,7 +288,7 @@ args_oap stage_one \
   --database ${ARG_DB}
 ```
 
-**Explanation:**  
+**Note:**  
 This step performs ARG annotation by comparing metagenomic reads against the ARG database.
 
 Main output directory:
@@ -313,7 +313,7 @@ args_oap stage_two \
   --structure1 ${ARG_STRUCTURE}
 ```
 
-**Explanation:**  
+**Note:**  
 This step classifies and quantifies ARGs based on the annotation results from stage one.
 
 Main output directory:
@@ -355,7 +355,7 @@ cp Assembly/${sample}_megahit/final.contigs.fa \
    Assembly/${sample}_contigs.fa
 ```
 
-**Explanation:**  
+**Note:**  
 MEGAHIT is used for short-read metagenomic assembly. The parameter `--min-contig-len 1000` keeps only contigs longer than or equal to 1000 bp.
 
 Main output file:
@@ -389,7 +389,7 @@ metawrap binning \
   QC/${sample}_clean_R2.fastq.gz
 ```
 
-**Explanation:**  
+**Note:**  
 This step reconstructs metagenome-assembled genomes, also known as MAGs, from assembled contigs.
 
 MetaWRAP uses MetaBAT2 for binning based on:
@@ -422,7 +422,7 @@ checkm2 predict \
   -x fa
 ```
 
-**Explanation:**  
+**Note:**  
 CheckM2 evaluates the quality of MAGs by estimating:
 
 - genome completeness
@@ -470,7 +470,7 @@ gtdbtk classify_wf \
   --skip_ani_screen
 ```
 
-**Explanation:**  
+**Note:**  
 GTDB-Tk assigns standardized taxonomy to MAGs using the GTDB reference database.
 
 Main output directory:
@@ -502,7 +502,7 @@ cp Binning/${sample}_metawrap_metabat2/metabat2_bins/*.fa \
    SGBs/MAGs/
 ```
 
-**Explanation:**  
+**Note:**  
 This step collects MAG files for SGB clustering.
 
 In this version, all MAGs are copied into the SGB directory. For more rigorous analysis, only high-quality or medium-quality MAGs should be selected based on CheckM2 results.
@@ -520,7 +520,7 @@ mash sketch \
   SGBs/MAGs/*.fa
 ```
 
-**Explanation:**  
+**Note:**  
 Mash converts genome sequences into compact sketches for rapid genome distance calculation.
 
 Important parameters:
@@ -556,7 +556,7 @@ mash dist \
   > SGBs/mash_distances.tab
 ```
 
-**Explanation:**  
+**Note:**  
 This step calculates pairwise Mash distances among all MAGs.
 
 Main output file:
@@ -579,7 +579,7 @@ awk '$3 <= 0.05 {print $1"\t"$2}' \
   > SGBs/similar_pairs.tsv
 ```
 
-**Explanation:**  
+**Note:**  
 This step extracts MAG pairs with Mash distance ≤ 0.05.
 
 This threshold is approximately equivalent to 95% genome similarity and is often used as a rough species-level boundary.
@@ -660,7 +660,7 @@ EOF
 chmod +x SGBs/scripts/cluster_sgbs.py
 ```
 
-**Explanation:**  
+**Note:**  
 This Python script performs graph-based clustering.
 
 The logic is:
@@ -686,7 +686,7 @@ python SGBs/scripts/cluster_sgbs.py \
   -o SGBs/SGB_clusters.tsv
 ```
 
-**Explanation:**  
+**Note:**  
 This step runs the Python script and generates the SGB clustering result.
 
 Main output file:
@@ -722,7 +722,7 @@ do
 done < SGBs/representative_MAGs.txt
 ```
 
-**Explanation:**  
+**Note:**  
 This step extracts the representative MAG of each SGB and copies these representative genomes into a separate directory.
 
 Main output files and directory:
@@ -757,7 +757,7 @@ phylophlan \
   --genome_extension fa
 ```
 
-**Explanation:**  
+**Note:**  
 PhyloPhlAn constructs a phylogenetic tree based on conserved marker genes from representative MAGs.
 
 Important parameters:
@@ -799,7 +799,7 @@ The final phylogenetic tree can be used for downstream visualization in tools su
 #   contamination <= 10%
 ```
 
-**Explanation:**  
+**Note:**  
 The current workflow directly copies all MetaBAT2 bins into the SGB analysis directory. For publication-level analysis, it is better to filter MAGs based on CheckM2 results before SGB construction.
 
 ---
@@ -813,7 +813,7 @@ The current workflow directly copies all MetaBAT2 bins into the SGB analysis dir
 # skani
 ```
 
-**Explanation:**  
+**Note:**  
 Mash distance is useful for rapid genome similarity estimation, but ANI-based methods are more accurate for species-level genome clustering.
 
 A more rigorous strategy is:
@@ -838,7 +838,7 @@ mash --version
 phylophlan --version
 ```
 
-**Explanation:**  
+**Note:**  
 Recording software versions is important for reproducibility, especially when preparing a manuscript or methods section.
 
 ---
@@ -849,7 +849,7 @@ Recording software versions is important for reproducibility, especially when pr
 bash EasyMultiOmics_short_read_metagenomics.sh sample01
 ```
 
-**Explanation:**  
+**Note:**  
 Before running the script, make sure the input files are named as follows:
 
 ```bash
