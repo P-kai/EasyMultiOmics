@@ -1,6 +1,6 @@
 The upstream steps of the single-cell genomics analysis workflow are different from those of metagenomics. However, the downstream steps after obtaining SAG bins are the same as those used in metagenomic analysis. Therefore, the metagenomic analysis workflow can be used as a reference for downstream analysis.
 
-The analysis from raw sequencing data to SAG bins mainly relies on `cutadaptor`, `fastp`, and the in-house software `compile_libs` developed by MGI Tech Co., Ltd.  
+The analysis from raw sequencing data to SAG bins mainly relies on `cutadaptor`, `fastp`, and the in-house software `compile_libs` developed by MobiDrop Co. Ltd.,  
 GitHub repository: `https://github.com/P-kai/EasyMultiOmics/tree/main/SAG%20bins%20co-assembly%20tool`
 
 The usage of the above software is described as follows:
@@ -47,3 +47,77 @@ main_pre-process \
 -with_CB false \
 -ID <output_ID>
 ```
+
+
+# Main program of compile_libs
+python microbe-seq_overseer -h
+usage: microbe-seq_overseer [-h] [-id JOB_ID] [-m META_DATA_FILE]
+                            [-o OUTPUT_PATH] [-t THREAD] [-c CONFIG_FILE]
+                            [-f FORCE] [--temp_dir TEMP_DIR]
+                            [-g CHECK_TIME_GAP] [-b BREAK_POINT]
+                            [-s RESOURCE_TRACE]
+                            [--job_scheduler JOB_SCHEDULER]
+                            [--job_type JOB_TYPE]
+                            [--known_bins_support KNOWN_BINS_SUPPORT]
+                            [--known_bins_file KNOWN_BINS_FILE]
+                            [--online_anno ONLINE_ANNO]
+                            [--anno_output_dir ANNO_OUTPUT_DIR]
+                            [--skip_processs SKIP_PROCESSS]
+                            [--run_levels RUN_LEVELS]
+                            [--no_assembl NO_ASSEMBL]
+                            [--block_host BLOCK_HOST] [-v]
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -id JOB_ID, --job_ID JOB_ID
+                        The master ID or name of this job.
+  -m META_DATA_FILE, --meta_data_file META_DATA_FILE
+                        The path of meta data file.
+  -o OUTPUT_PATH, --output_path OUTPUT_PATH
+                        The master output path of this job.
+  -t THREAD, --thread THREAD
+                        The number of threads will use.
+  -c CONFIG_FILE, --config_file CONFIG_FILE
+                        The path of config file.
+  -f FORCE, --force FORCE
+                        If overwrite the output path if the path already
+                        exists. Default value is False.
+  --temp_dir TEMP_DIR   The temporary direction of this job. It could be a
+                        path on SSD to speed up the whole process. If NA
+                        applied, then all temporary file will wite to output
+                        path.
+  -g CHECK_TIME_GAP, --check_time_gap CHECK_TIME_GAP
+                        The gap second of each. Default value is 60
+  -b BREAK_POINT, --break_point BREAK_POINT
+                        The break point of the process. Valid phases are pre-
+                        process, combine, co-assemble, clean, call_species,
+                        call_strain, HGT, phage_assoc, mock_alignment,
+                        report_generate and whole_process
+  -s RESOURCE_TRACE, --resource_trace RESOURCE_TRACE
+                        If trace resource cost of all process. Default value
+                        is False.
+  --job_scheduler JOB_SCHEDULER
+                        The job deliver scheduler. Valid values are LSF and
+                        slurm.
+  --job_type JOB_TYPE   The job type. Valid values are 'assemble', 'mock' and
+                        'downstream_analysis'. Default value is 'assemble'
+  --known_bins_support KNOWN_BINS_SUPPORT
+                        If use known assembled contigs to support assemble.
+                        Default value is False.
+  --known_bins_file KNOWN_BINS_FILE
+                        The file of known bins.
+  --online_anno ONLINE_ANNO
+                        If gain annotation online.
+  --anno_output_dir ANNO_OUTPUT_DIR
+                        The output path of annotation.
+  --skip_processs SKIP_PROCESSS
+                        The skip process. Many process can be splitted by
+                        comma.
+  --run_levels RUN_LEVELS
+                        Run annotation on which levels. Multi-levels separated
+                        by comma.
+  --no_assembl NO_ASSEMBL
+                        Run no-assmbl pipline.
+  --block_host BLOCK_HOST
+                        Block certain host.
+  -v, --version         Show version
