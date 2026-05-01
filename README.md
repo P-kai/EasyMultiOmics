@@ -50,3 +50,8 @@ The pipeline supports beginner-friendly yet robust analytical procedures and is 
 - Phylogenetic tree construction of SAGs  
 
 ---
+
+### File descriptions
+`Bins_analysis_results` contains all analysis results related to bins. `*_Checkm2-gtdbtk.xlsx` includes the bin quality-control table based on CheckM2-estimated completeness and contamination, the taxonomic classification table, bin size, contig N50, and other related information.
+
+`*_bins_ARGs_ncbi_80_80.xlsx` contains the results of ARG identification in bins using ABRicate. The ABRicate parameters were set to a minimum coverage of 80% and a minimum nucleotide identity of 80%, and the database used was the NCBI AMRFinderPlus database.
