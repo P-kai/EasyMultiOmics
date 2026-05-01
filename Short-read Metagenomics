@@ -7,6 +7,56 @@
     #              metagenomic assembly, genome binning, bin quality assessment, bin taxonomy,
     #              SGB construction and SGB phylogenetic analysis.
 
+Notes for this pipeline
+
+##  Database and software versions
+
+    # software versions
+    fastp 0.23.4
+    seqkit 2.8.2
+    kraken2 2.17.1
+    args_oap 3.2.4
+    megahit v1.2.9
+    metawrap 1.3.2
+    checkm2 1.0.1
+    gtdbtk v2.2.6
+    Abricate 1.0.1
+    mash 2.3
+    phylophlan 3.1.68
+
+    # database versions
+    kraken2 k2_pluspfp
+    args_oap NCBI AMRFinderPlus
+    gtdbtk gtdbtk_r214
+    checkm2 uniref100.KO.1.dmnd
+    Abricate NCBI AMRFinderPlus
+    
+## ARGs identification
+    # ABRicate: minid=80% mincov=80%
+
+##  MAG quality criteria
+
+    # High-quality MAGs:
+    # completeness >= 90% and contamination <= 5%
+
+    # Medium-quality MAGs:
+    # completeness >= 50% and contamination <= 10%
+
+These criteria are commonly used for MAG quality assessment. For SGB construction and phylogenetic tree analysis, using medium-quality and high-quality MAGs is recommended.
+
+##  SGB definition strategy
+
+    # Fast strategy:
+    # Mash distance <= 0.05
+
+    # More rigorous strategy:
+    # ANI >= 95% using FastANI, dRep or skani
+
+Explanation:
+
+Mash-based clustering is fast and useful for exploratory analysis. For formal publication-level SGB definition, ANI-based verification is recommended.
+
+# Pipeline:
 # 0. Basic configuration
 
 ## 0.1 Set sample name and computational resources
@@ -175,27 +225,7 @@ Main outputs:
     03_taxonomy/${i}_kraken2_report.txt
     03_taxonomy/${i}_kraken2_output.txt
 
-## 2.2 Species-level abundance estimation using Bracken
 
-    # Activate the conda environment containing Bracken
-    conda activate bracken
-
-    # Estimate species-level abundance based on Kraken2 results
-    bracken \
-      -d ${KRAKEN2_DB} \
-      -i 03_taxonomy/${i}_kraken2_report.txt \
-      -o 03_taxonomy/${i}_bracken_species.txt \
-      -r 150 \
-      -l S \
-      -t 10
-
-Explanation:
-
-Bracken re-estimates species-level abundance from Kraken2 classification results. The parameter `-r 150` indicates that the expected read length is 150 bp and should be modified according to the actual sequencing read length. The parameter `-l S` means that abundance is estimated at the species level. The parameter `-t 10` is the minimum read threshold, not the number of CPU threads.
-
-Main output:
-
-    03_taxonomy/${i}_bracken_species.txt
 
 # 3. ARG annotation and quantification
 
@@ -426,7 +456,7 @@ The column order of `quality_report.tsv` may vary slightly among CheckM2 version
 
     head 07_bin_qc/${i}_checkm2/quality_report.tsv
 
-# 7. Taxonomic annotation of bins
+# 7. Taxonomic and ARGs annotation of bins
 
 ## 7.1 Taxonomic classification of MAGs using GTDB-Tk
 
@@ -455,16 +485,20 @@ Main output directory:
 
     08_bin_taxonomy/${i}_gtdbtk
 
-## 7.2 Convert GTDB-Tk tree to iTOL format
+## 7.2 ARGs annotation
 
-    # Convert GTDB-Tk tree to iTOL-compatible format if tree file is available
-    gtdbtk convert_to_itol \
-      --input 08_bin_taxonomy/${i}_gtdbtk/gtdbtk.bac120.classify.tree \
-      --output 08_bin_taxonomy/${i}_gtdbtk/${i}_gtdbtk_itol.tree
+      abricate \
+      --db ${ABRICATE_ARG_DB} \
+      --minid 80 \
+      --mincov 80 \
+      --threads ${threads} \
+      06_binning/${i}_bins/${bin}.fa \
+      > 08_bin_taxonomy/${i}_${ABRICATE_ARG_DB}_ARG_result.tsv
 
-Explanation:
-
-The converted tree can be uploaded to iTOL for visualization and annotation. If GTDB-Tk does not generate this tree file in your version, this step can be skipped.
+    # Generate an ARG summary table
+    abricate --summary \
+      08_bin_taxonomy/${i}_${ABRICATE_ARG_DB}_ARG_result.tsv \
+      > 08_bin_taxonomy/${i}_${ABRICATE_ARG_DB}_ARG_summary.tsv
 
 # 8. SGB construction and SGB phylogenetic analysis
 
@@ -707,48 +741,3 @@ This directory structure keeps each analysis module independent and makes it eas
 
     # 8. SGB construction and phylogenetic analysis
     # Mash + graph clustering + PhyloPhlAn
-
-# 11. Notes for publication-level analysis
-
-## 11.1 Database and software versions
-
-    # Recommended version recording commands
-    fastp --version
-    seqkit version
-    kraken2 --version
-    bracken -h
-    args_oap -h
-    megahit --version
-    metawrap -h
-    checkm2 --version
-    gtdbtk --version
-    mash --version
-    phylophlan --version
-
-Explanation:
-
-For manuscript preparation, software versions and database versions should be recorded to ensure reproducibility.
-
-## 11.2 Suggested MAG quality criteria
-
-    # High-quality MAGs:
-    # completeness >= 90% and contamination <= 5%
-
-    # Medium-quality MAGs:
-    # completeness >= 50% and contamination <= 10%
-
-Explanation:
-
-These criteria are commonly used for MAG quality assessment. For SGB construction and phylogenetic tree analysis, using medium-quality and high-quality MAGs is recommended.
-
-## 11.3 Suggested SGB definition strategy
-
-    # Fast strategy:
-    # Mash distance <= 0.05
-
-    # More rigorous strategy:
-    # ANI >= 95% using FastANI, dRep or skani
-
-Explanation:
-
-Mash-based clustering is fast and useful for exploratory analysis. For formal publication-level SGB definition, ANI-based verification is recommended.
