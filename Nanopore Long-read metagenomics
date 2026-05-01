@@ -222,90 +222,75 @@ Main outputs:
 
 # 3. ARG annotation and quantification
 
-## 3.1 ARG annotation of Nanopore reads using ABRicate
+## 3.1 Prepare input files and output directories for ARGs_OAP
 
-    # Activate the conda environment containing ABRicate
-    conda activate abricate
+    # Activate the conda environment containing ARGs_OAP
+    conda activate args_oap
 
-    # Annotate antibiotic resistance genes using the selected ARG database
-    abricate \
-      --db ${ABRICATE_ARG_DB} \
-      --minid 80 \
-      --mincov 80 \
-      --threads ${threads} \
-      02_clean_reads/${i}_clean.fasta \
-      > 04_ARGs/${i}_${ABRICATE_ARG_DB}_ARG_result.tsv
+    # Create output directories for ARGs_OAP
+    mkdir -p 04_ARGs/${i}_ARGs_OAP
+    mkdir -p 04_ARGs/${i}_ARGs_OAP/stage_one
+    mkdir -p 04_ARGs/${i}_ARGs_OAP/stage_two
 
-    # Generate an ARG summary table
-    abricate --summary \
-      04_ARGs/${i}_${ABRICATE_ARG_DB}_ARG_result.tsv \
-      > 04_ARGs/${i}_${ABRICATE_ARG_DB}_ARG_summary.tsv
+    # Use clean Nanopore reads in FASTA format as ARGs_OAP input
+    ARG_INPUT=02_clean_reads/${i}_clean.fasta
 
 Explanation:
 
-This step identifies ARG-like sequences directly from Nanopore reads. The parameters `--minid 80` and `--mincov 80` indicate that hits must have at least 80% nucleotide identity and 80% coverage. These thresholds can be adjusted depending on whether a strict or sensitive search is required.
+This step prepares the input file and output directories for ARGs_OAP. In this workflow, the cleaned Nanopore reads are first converted into FASTA format and then used for read-based ARG annotation and quantification.
 
-Main outputs:
+Main input:
 
-    04_ARGs/${i}_${ABRICATE_ARG_DB}_ARG_result.tsv
-    04_ARGs/${i}_${ABRICATE_ARG_DB}_ARG_summary.tsv
+    02_clean_reads/${i}_clean.fasta
 
-## 3.2 ARG abundance normalization
+## 3.2 Stage one: ARG annotation using ARGs_OAP
 
-    # Create a Python script to calculate ARG abundance from ABRicate results
-    cat > 04_ARGs/arg_abundance_calculate.py << 'PYEOF'
-    #!/usr/bin/env python3
-
-    import argparse
-    import pandas as pd
-
-    parser = argparse.ArgumentParser(description="Calculate ARG abundance from ABRicate results.")
-    parser.add_argument("--abricate", required=True, help="ABRicate output table.")
-    parser.add_argument("--stats", required=True, help="seqkit stats table generated with -T.")
-    parser.add_argument("--out", required=True, help="Output ARG abundance table.")
-    args = parser.parse_args()
-
-    stats = pd.read_csv(args.stats, sep="\t")
-    if "sum_len" not in stats.columns:
-        raise ValueError("Cannot find 'sum_len' column in seqkit stats table.")
-
-    total_bases = float(str(stats.loc[0, "sum_len"]).replace(",", ""))
-    total_gb = total_bases / 1e9
-
-    abricate = pd.read_csv(args.abricate, sep="\t", comment="#")
-
-    if abricate.empty:
-        out = pd.DataFrame(columns=["GENE", "Hit_Number", "Hit_per_Gb"])
-        out.to_csv(args.out, sep="\t", index=False)
-        raise SystemExit
-
-    if "GENE" not in abricate.columns:
-        raise ValueError("Cannot find 'GENE' column in ABRicate result.")
-
-    abundance = (
-        abricate.groupby("GENE")
-        .size()
-        .reset_index(name="Hit_Number")
-    )
-
-    abundance["Hit_per_Gb"] = abundance["Hit_Number"] / total_gb
-    abundance = abundance.sort_values("Hit_per_Gb", ascending=False)
-    abundance.to_csv(args.out, sep="\t", index=False)
-    PYEOF
-
-    # Run ARG abundance calculation
-    python 04_ARGs/arg_abundance_calculate.py \
-      --abricate 04_ARGs/${i}_${ABRICATE_ARG_DB}_ARG_result.tsv \
-      --stats 02_clean_reads/${i}_clean_seqkit_stats.tsv \
-      --out 04_ARGs/${i}_${ABRICATE_ARG_DB}_ARG_abundance.tsv
+    # Perform ARG annotation using ARGs_OAP
+    args_oap stage_one \
+      -i ${ARG_INPUT} \
+      -o 04_ARGs/${i}_ARGs_OAP/stage_one \
+      -f fa \
+      -t ${threads} \
+      --database ${ARGSOAP_DB}
 
 Explanation:
 
-This script calculates ARG abundance as ARG hit number normalized by total metagenomic sequencing size. The output value `Hit_per_Gb` represents the number of ARG-positive hits per gigabase of clean Nanopore reads.
+This step identifies antibiotic resistance gene-like sequences from Nanopore long-read metagenomic data using ARGs_OAP. The database used in this workflow is the NCBI AMRFinderPlus database.
 
-Main output:
+Main output directory:
 
-    04_ARGs/${i}_${ABRICATE_ARG_DB}_ARG_abundance.tsv
+    04_ARGs/${i}_ARGs_OAP/stage_one
+
+## 3.3 Stage two: ARG classification and quantification using ARGs_OAP
+
+    # Classify and quantify ARGs using ARGs_OAP
+    args_oap stage_two \
+      -i 04_ARGs/${i}_ARGs_OAP/stage_one \
+      -o 04_ARGs/${i}_ARGs_OAP/stage_two \
+      -t ${threads} \
+      --database ${ARGSOAP_DB} \
+      --structure1 ${ARGSOAP_STRUCTURE}
+
+Explanation:
+
+This step classifies and quantifies ARGs based on the ARG annotation results from stage one. The output files contain ARG classification tables and abundance tables generated by ARGs_OAP.
+
+Main output directory:
+
+    04_ARGs/${i}_ARGs_OAP/stage_two
+
+## 3.4 Notes for ARGs_OAP database configuration
+
+    # The ARGs_OAP database used in this workflow is based on NCBI AMRFinderPlus.
+    # Please replace the following paths with the actual database files on your server:
+    #
+    # ARGSOAP_DB=/path/to/args_oap_database/NCBI_AMRFinderPlus.fasta
+    # ARGSOAP_STRUCTURE=/path/to/args_oap_database/structure.txt
+
+Explanation:
+
+This workflow uses ARGs_OAP for both ARG annotation and quantification. Therefore, no additional manual abundance-calculation script is required in this ARG analysis module.
+
 
 # 4. Metagenomic assembly
 
@@ -753,50 +738,3 @@ This directory structure keeps each analysis module independent and makes it eas
     i=sample_name
     threads=24
     raw_fastq=${i}.fastq.gz
-
-## 10.2 Run major modules sequentially
-
-    # 1. Raw data quality control
-    # Adapter removal, read quality evaluation and read filtering
-
-    # 2. Read-based taxonomic profiling
-    # Kraken2
-
-    # 3. ARG annotation and quantification
-    # ABRicate and normalized abundance calculation
-
-    # 4. Metagenomic assembly
-    # MetaFlye
-
-    # 5. Genome binning
-    # minimap2 + SemiBin
-
-    # 6. Bin quality assessment
-    # CheckM2
-
-    # 7. Bin taxonomy
-    # GTDB-Tk
-
-    # 8. SGB construction and phylogenetic analysis
-    # Mash + graph clustering + PhyloPhlAn
-
-# 11. Notes for publication-level analysis
-
-## 11.1 Database and software versions
-
-    # Recommended version recording commands
-    porechop_abi --version
-    NanoPlot --version
-    chopper --version
-    seqkit version
-    kraken2 --version
-    abricate --version
-    flye --version
-    minimap2 --version
-    samtools --version
-    SemiBin --version
-    checkm2 --version
-    gtdbtk --version
-    mash --version
-    phylophlan --version
-
