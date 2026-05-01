@@ -1,3 +1,11 @@
+The upstream steps of the single-cell genomics analysis workflow are different from those of metagenomics. However, the downstream steps after obtaining SAG bins are the same as those used in metagenomic analysis. Therefore, the metagenomic analysis workflow can be used as a reference for downstream analysis.
+
+The analysis from raw sequencing data to SAG bins mainly relies on `cutadaptor`, `fastp`, and the in-house software `compile_libs` developed by MGI Tech Co., Ltd.  
+GitHub repository: `https://github.com/P-kai/EasyMultiOmics/tree/main/SAG%20bins%20co-assembly%20tool`
+
+The usage of the above software is described as follows:
+
+
 # cutadaptor
 
 ```shell
