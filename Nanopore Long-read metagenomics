@@ -8,6 +8,59 @@
     #              metagenomic assembly, genome binning, bin quality assessment, bin taxonomy,
     #              SGB construction and SGB phylogenetic analysis.
 
+Notes for this pipeline
+
+##  Database and software versions
+
+    # software versions
+    porechop_abi 0.5.0
+    NanoPlot 1.42.0
+    seqkit 2.8.2
+    kraken2 2.17.1
+    Abricate 1.0.1
+    args_oap 3.2.4
+    flye 2.9.4
+    SemiBin 2.1.0
+    checkm2 1.0.1
+    gtdbtk v2.2.6
+    mash 2.3
+    phylophlan 3.1.68
+
+    # database versions
+    kraken2 k2_pluspfp
+    args_oap NCBI AMRFinderPlus
+    gtdbtk gtdbtk_r214
+    checkm2 uniref100.KO.1.dmnd
+    Abricate NCBI AMRFinderPlus
+    
+## ARGs identification
+    # ABRicate: minid=80% mincov=80%
+
+##  Metagenome assembly
+    # flye: --meta
+
+##  MAG quality criteria
+    # High-quality MAGs:
+    # completeness >= 90% and contamination <= 5%
+
+    # Medium-quality MAGs:
+    # completeness >= 50% and contamination <= 10%
+
+These criteria are commonly used for MAG quality assessment. For SGB construction and phylogenetic tree analysis, using medium-quality and high-quality MAGs is recommended.
+
+##  SGB definition strategy
+
+    # Fast strategy:
+    # Mash distance <= 0.05
+
+    # More rigorous strategy:
+    # ANI >= 95% using FastANI, dRep or skani
+
+Explanation:
+
+Mash-based clustering is fast and useful for exploratory analysis. For formal publication-level SGB definition, ANI-based verification is recommended.
+
+
 # 0. Basic configuration
 
 ## 0.1 Set sample name and computational resources
@@ -53,7 +106,7 @@ This section defines the sample name, CPU threads, input file and output directo
 ## 0.2 Set database paths
 
     # Kraken2 database
-    KRAKEN2_DB=/path/to/kraken2_database
+    KRAKEN2_DB=/path/to/kraken2_database/k2_pluspfp
 
     # ABRicate ARG database
     ABRICATE_ARG_DB=ncbi
@@ -62,7 +115,7 @@ This section defines the sample name, CPU threads, input file and output directo
     CHECKM2_DB=/path/to/checkm2_database/uniref100.KO.1.dmnd
 
     # GTDB-Tk database
-    GTDBTK_DB=/path/to/gtdbtk_database
+    GTDBTK_DB=/path/to/gtdbtk_database/release_r214/
 
     # PhyloPhlAn database and configuration file
     PHYLOPHLAN_DB=/path/to/phylophlan_database/phylophlan
@@ -81,7 +134,7 @@ This section defines the database paths used by the workflow. Before running the
 
     porechop_abi --ab_initio \
       -i 01_raw_qc/${raw_fastq} \
-      -o 02_clean_reads/${i}_adapter_removed.fastq \
+      -o 02_clean_reads/${i}_clean.fastq \
       -t ${threads}
 
 Explanation:
@@ -116,30 +169,8 @@ Main output directory:
 
     01_raw_qc/${i}_NanoPlot
 
-## 1.3 Length and quality filtering of Nanopore reads
 
-    # Activate the conda environment containing chopper
-    conda activate chopper
-
-    # Recommended starting parameters:
-    #   -q 9: keep reads with average Q score >= 9
-    #   -l 1000: keep reads with length >= 1000 bp
-    chopper \
-      -q 9 \
-      -l 1000 \
-      -t ${threads} \
-      -i 02_clean_reads/${i}_adapter_removed.fastq \
-      > 02_clean_reads/${i}_clean.fastq
-
-Explanation:
-
-This step removes short and low-quality Nanopore reads. For assembly-based metagenomic analysis, reads shorter than 1000 bp are often less informative. The thresholds can be adjusted according to sequencing quality and research goals.
-
-Main output:
-
-    02_clean_reads/${i}_clean.fastq
-
-## 1.4 Convert clean FASTQ reads to FASTA format
+## 1.3 Convert clean FASTQ reads to FASTA format
 
     # Activate conda environment containing seqkit
     conda activate seqkit
@@ -769,30 +800,3 @@ This directory structure keeps each analysis module independent and makes it eas
     mash --version
     phylophlan --version
 
-Explanation:
-
-For manuscript preparation, software versions and database versions should be recorded to ensure reproducibility.
-
-## 11.2 Suggested MAG quality criteria
-
-    # High-quality MAGs:
-    # completeness >= 90% and contamination <= 5%
-
-    # Medium-quality MAGs:
-    # completeness >= 50% and contamination <= 10%
-
-Explanation:
-
-These criteria are commonly used for MAG quality assessment. For SGB construction and phylogenetic tree analysis, using medium-quality and high-quality MAGs is recommended.
-
-## 11.3 Suggested SGB definition strategy
-
-    # Fast strategy:
-    # Mash distance <= 0.05
-
-    # More rigorous strategy:
-    # ANI >= 95% using FastANI, dRep or skani
-
-Explanation:
-
-Mash-based clustering is fast and useful for exploratory analysis. For formal publication-level SGB definition, ANI-based verification is recommended.
